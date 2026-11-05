@@ -1,0 +1,3 @@
+# 改行は LF に統一（Cloudflare Pages / CI は Linux でビルドする）
+* text=auto eol=lf
+*.png binary

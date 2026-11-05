@@ -1,0 +1,44 @@
+{
+  "name": "routine-lab",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "prebuild": "node scripts/check-static.mjs",
+    "build": "next build",
+    "postbuild": "node scripts/check-out.mjs",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:static": "node scripts/check-static.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "check": "npm run check:static && npm run check:secrets && npm run lint && npm run typecheck && npm test",
+    "gen:icons": "node scripts/gen-icons.mjs",
+    "check:deno": "cd supabase/functions && npx --yes deno@2.9.6 check --no-config send-push/index.ts test-push/index.ts",
+    "smoke:functions": "node scripts/smoke-functions.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0",
+    "next": "16.4.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "4.3.4",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/web-push": "3.6.4",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.5",
+    "supabase": "3.0.0",
+    "tailwindcss": "4.3.4",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0",
+    "web-push": "3.6.7"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
