@@ -213,6 +213,19 @@ routine-lab/
 - PC Chrome / Edge（Android の代替）：購読・受信・タップ遷移・購読解除後の 404/410 による無効化。
 **Go 条件**：iPhone で閉じた状態でも届く＆タップで記録画面が開く、安全性の確認がすべて通る、Edge Function 1回の CPU に余裕がある。**No-Go 時**：ライブラリ変更→それでも不可なら Workers 試作→それでも不可なら「アプリ内表示のみ＋通知は補助」に要件調整を相談。
 
+#### Phase 0 の実績（2026-11-07 完了・判定 **Go**）
+詳細は `docs/test-report.md`。
+- iPhone 実機（iOS 18.7）：アプリを完全に終了・ロックした状態で、cron 経由の予約通知を受信。タップで記録画面が開いた。送信処理は 1 回 1.8 秒（2台）。
+- 安全性：未ログイン・偽トークン・公開キーだけ・合言葉なし／誤りはすべて拒否、送信用の DB 関数は一般ユーザーから実行不可、回数制限（429）を確認。
+- **計画からの変更点**
+  - Supabase は空き枠の確認の結果、`routine-lab` の1プロジェクト運用（ref `vmlxzeraeimxgkjxivnl`、ap-northeast-1）。dev / prod は分けず、テスト用ユーザーで分離する。
+  - Web Push は外部ライブラリを使わず、`_shared/webpush.ts` に WebCrypto で実装（`@negrel/webpush` / `npm:web-push` は不採用。`web-push` は鍵生成と復号テストの参照実装だけに使う）。
+  - send-push は `verify_jwt = false`＋`x-cron-secret` の定数時間比較（Supabase 公式の「Securing Edge Functions」の推奨どおり。pg_net から JWT を送らないため）。test-push は `verify_jwt = true`＋`getUser`。送信先は許可した Push サービスのドメインだけ（SSRF 対策）。
+  - 合言葉は Vault の中で乱数から作り、Function の `CRON_SECRET` にコピーする（`scripts/setup-cron-secret.mjs`。SQL やログに値を出さない）。止めるときは Vault の `send_push_url` を消す（`--off`）。
+  - `dispatch_due_push` は期限切れのジョブを先に `expired` にしてから呼ぶ（マイグレーション `20261106000000`。失敗が続いても毎分呼び続けない）。
+  - 認証メールは無料の Resend SMTP（送信元 `onboarding@resend.dev`、宛先は本人だけ）。2026-06 以降、新しい無料プロジェクトはカスタム SMTP なしではメールテンプレートを変えられないため。新規登録は OFF、コードは6桁・有効 600 秒、ログイン画面は `shouldCreateUser: false`。
+- **後の Phase に回した確認**：他人の端末に届かないこと（Phase 1 の DB テスト）、tag による置き換え・延期の再通知・完了後の停止・PC Chrome（FCM）・404/410 の無効化（Phase 2）。
+
 ### Phase 1：土台とデータ保存（F-001〜003, 101〜103, 105, 201〜203, 310, 401〜406, 408）
 - **実装**：全テーブル・RLS・RPC のマイグレーション、pg_cron（予定作成・missed 確定）、`AuthGate`（未ログインは `/login/` へ）、OTP ログイン（`signInWithOtp` → `verifyOtp({type:'email'})`、メールテンプレートを `{{ .Token }}` に変更する手順を README に）、ログアウト、今日画面（今日の予定＋前日の未記録）、ルーティン一覧・編集（版・適用開始日・変更理由）・アーカイブ・詳細（版履歴）、記録画面（完了：予定時刻/今・所要時間・タイマー、延期5種＋理由、見送り＋理由）。
 - **ファイル**：`supabase/migrations/0001_schema.sql`, `0002_rls.sql`, `0003_rpc.sql`, `0004_cron.sql`、`src/lib/time/*`, `src/lib/domain/*`, 各画面。

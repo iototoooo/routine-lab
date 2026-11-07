@@ -30,6 +30,7 @@
 | アイコンの再生成 | `npm run gen:icons` |
 | Edge Function の型チェック（Deno） | `npm run check:deno`（`npx` で deno 2.9.6 を一時取得） |
 | Edge Function の拒否確認（通知は送らない） | `npm run smoke:functions -- https://vmlxzeraeimxgkjxivnl.supabase.co/functions/v1 <許可オリジン>` |
+| 予約通知の経路（CRON_SECRET・Vault）の状態確認／設定／停止 | `node scripts/setup-cron-secret.mjs`（引数なし＝読み取りだけ）／`--apply`・`--verify`・`--off`・`--on`・`--rotate`（変更系は承認後のみ） |
 | Function の Secrets 登録（承認後のみ） | `node scripts/setup-function-secrets.mjs --subject <mailto:またはhttps:> --origins <カンマ区切り>`（まず `--dry-run`） |
 
 ## 静的出力で使えないもの（課題①の教訓。要件 7.2 節）

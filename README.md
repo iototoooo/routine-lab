@@ -2,7 +2,10 @@
 
 曜日ごとのルーティンを登録し、**予定と実績の差**を記録・分析して、PDCA で自分に合ったルーティンへ改善していく Web アプリ（PWA）です。
 
-> 現在は **Phase 0（Web Push 通知の技術検証）** の段階です。公開 URL は、デプロイ後に追記します。
+> 現在は **Phase 0（Web Push 通知の技術検証）が完了**し、Phase 1（ルーティンと記録の土台）の準備中です。
+> Phase 0 では、iPhone のホーム画面アプリを完全に終了した状態でも予約通知が届き、タップで記録画面が開くことを確認しました（[テスト記録](docs/test-report.md)）。
+
+- 公開 URL：https://routine-lab.pages.dev/ （利用者は登録済みの本人だけ。新規登録はできません）
 
 - 要件定義：[docs/requirements.md](docs/requirements.md)
 - 実装計画：[docs/plan.md](docs/plan.md)
@@ -21,9 +24,9 @@
 ## 通知の対応条件
 | 端末 | 条件 | 検証の状況 |
 | --- | --- | --- |
-| iPhone / iPad | iOS / iPadOS 16.4 以降。**Safari の「ホーム画面に追加」で追加したアプリからのみ**通知を使えます。許可はアプリ内のボタンから行います | 実機で検証予定（Phase 0） |
-| Android | Chrome などで使えます（ブラウザのままでも PWA でも） | **Android 実機では未検証**です。PC の Chrome（Android と同じく FCM 経由）と Edge（WNS 経由）で代替検証します |
-| PC | Chrome・Edge・Firefox・Safari | 補助的な利用。Edge（Windows）で受信・タップ遷移を確認済み（[テスト記録](docs/test-report.md)） |
+| iPhone / iPad | iOS / iPadOS 16.4 以降。**Safari の「ホーム画面に追加」で追加したアプリからのみ**通知を使えます。許可はアプリ内のボタンから行います | **iPhone 実機（iOS 18.7）で確認済み**：アプリを終了・ロックした状態での予約通知の受信、タップで記録画面を開く（[テスト記録](docs/test-report.md)） |
+| Android | Chrome などで使えます（ブラウザのままでも PWA でも） | **Android 実機では未検証**です。PC の Edge（WNS 経由）で確認済み。Android と同じ FCM 経由の PC Chrome での確認は Phase 2 までに行います |
+| PC | Chrome・Edge・Firefox・Safari | 補助的な利用。Edge（Windows）で受信・タップ遷移・予約通知を確認済み（[テスト記録](docs/test-report.md)） |
 
 - Web Push は配送が保証された仕組みではありません。通知は予定時刻から最大 1〜2 分ほど遅れることがあります。アプリを開けば、今日の予定と未記録の予定を必ず確認できます。
 - 通知にはルーティン名が表示されます。ロック画面に表示したくない場合は、端末の通知設定で「プレビューを表示」を「ロックされていないときのみ」にしてください。
