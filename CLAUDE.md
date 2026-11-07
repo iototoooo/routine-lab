@@ -20,7 +20,9 @@
 | --- | --- |
 | 開発サーバー | `npm run dev` |
 | ビルド（前後に check-static / check-out が自動で走る） | `npm run build` |
-| 単体テスト（全部） | `npm test` |
+| 単体＋DB テスト（全部） | `npm test`（DB / RLS テストは PGlite で手元だけで動く。本番には接続しない） |
+| DB / RLS テストだけ | `npx vitest run tests/db` |
+| ブラウザテスト | `npm run test:e2e`（偽の接続先でビルド → out/ を配信 → Playwright。初回は `npx playwright install chromium webkit`。ここで作る out/ はテスト専用） |
 | 単体テスト（1ファイル） | `npx vitest run tests/unit/jst.test.ts` |
 | 単体テスト（名前で絞る） | `npx vitest run -t "isoWeekday"` |
 | Lint / 型チェック | `npm run lint` / `npm run typecheck` |
@@ -74,4 +76,8 @@
 
 ## テスト
 - 単体：`tests/unit/*.test.ts`（Vitest、node 環境）。日付・曜日・集計・提案ルール・通知の暗号化と守りは純粋関数にしてここで確認する。
-- DB / RLS・ブラウザ（Playwright）・iPhone 実機のテストは `docs/plan.md` 9章に従う。Android 実機はないため PC の Chrome / Edge で代替し、README に「Android 実機では未検証」と書く。
+- DB / RLS：`tests/db/*.test.ts`。`tests/db/harness.ts` が PGlite に全マイグレーションを適用する（Supabase の既定の権限・auth・vault・net・cron は最小の代役）。時刻に依存する規則は内部の関数（`_record_done` など、`p_now` を受け取る）で確かめる。
+- ブラウザ：`tests/e2e/*.spec.ts`（Playwright、Pixel 7 / iPhone 14 の表示）。Supabase への通信は `tests/e2e/fake-supabase.ts` がすべて横取りする。
+- 本番 DB の確認は `supabase/tests/phase1_smoke.sql`（必ず例外で終わり、全体が取り消される。実行は承認後のみ）。
+- Phase 1 を本番から取り消すときは `supabase/rollback/20261107_phase1_down.sql`（承認後のみ。`tests/db/rollback.test.ts` で確認済み）。
+- iPhone 実機のテストは `docs/plan.md` 9章に従う。Android 実機はないため PC の Chrome / Edge で代替し、README に「Android 実機では未検証」と書く。

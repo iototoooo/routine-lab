@@ -16,7 +16,9 @@
     "check": "npm run check:static && npm run check:secrets && npm run lint && npm run typecheck && npm test",
     "gen:icons": "node scripts/gen-icons.mjs",
     "check:deno": "cd supabase/functions && npx --yes deno@2.9.6 check --no-config send-push/index.ts test-push/index.ts",
-    "smoke:functions": "node scripts/smoke-functions.mjs"
+    "smoke:functions": "node scripts/smoke-functions.mjs",
+    "test:e2e": "node scripts/build-e2e.mjs && playwright test",
+    "test:e2e:only": "playwright test"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",
@@ -25,6 +27,8 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.13",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/turbopack": "4.3.4",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",

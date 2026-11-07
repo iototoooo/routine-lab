@@ -62,3 +62,38 @@ export function todayAndTomorrow(now: Date): [string, string] {
   const today = jstDate(now);
   return [today, addDays(today, 1)];
 }
+
+/** 記録の期限：予定日の翌日の終わり（＝予定日＋2日の 0:00 JST。F-406。DB の occurrence_deadline と同じ） */
+export function occurrenceDeadline(plannedDate: string): Date {
+  return jstDateTimeToInstant(addDays(plannedDate, 2), "00:00");
+}
+
+/** 分に切り捨て */
+export function truncateToMinute(instant: Date): Date {
+  return new Date(Math.floor(instant.getTime() / 60000) * 60000);
+}
+
+/** 2つの瞬間の差（分、b − a。四捨五入） */
+export function minutesBetween(a: Date, b: Date): number {
+  return Math.round((b.getTime() - a.getTime()) / 60000);
+}
+
+/** "HH:MM" が 5 分単位か */
+export function isFiveMinuteTime(time: string): boolean {
+  return TIME_RE.test(time) && Number(time.slice(3)) % 5 === 0;
+}
+
+const WEEKDAY_SHORT = ["月", "火", "水", "木", "金", "土", "日"] as const;
+
+/** ISO 曜日（1〜7）の短い表記 */
+export function weekdayShort(isoDay: number): string {
+  const s = WEEKDAY_SHORT[isoDay - 1];
+  if (!s) throw new Error(`曜日が不正です: ${isoDay}`);
+  return s;
+}
+
+/** "2026-11-10" → "11/10（火）" */
+export function formatDateShort(date: string): string {
+  const [, m, d] = date.split("-");
+  return `${Number(m)}/${Number(d)}（${weekdayShort(isoWeekday(date))}）`;
+}
