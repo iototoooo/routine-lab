@@ -156,3 +156,11 @@ Phase 1 の7つの関数（作成・編集・アーカイブ・完了・延期�
 ## 13. 本番スモークテスト（2026-11-08 00:16 JST、承認済み・第3段階）
 - 実行：`npx supabase db query --remote=vmlxzeraeimxgkjxivnl -f supabase/tests/phase2_smoke.sql --yes` → `SMOKE_OK checks=13 (rolled back)`（CLI は意図どおりエラー終了）。
 - 実行後（読み取りのみ）：auth.users 1・profiles 1・テスト用ユーザー 0。ルーティン・版・予定・実績・イベントの件数と内容の md5、通知ジョブ 5 件（予定の通知 3 件は pending のまま）の md5、pg_net の送信待ち 0・応答 1 が実行前と同じ。構造・関数・ポリシー・cron・Vault・Phase 0 の表のスナップショットに差分なし。Secrets も変更なし。毎分の cron は成功のまま。
+
+## 14. GitHub への公開と実機テスト（2026-11-08）
+- 公開：commit `9defb57`（Phase 2 の 30 ファイル）を main に push。CI は成功したが、Cloudflare Pages の自動デプロイが始まらなかった（GitHub は Cloudflare アプリ向けの check suite を作ったまま「待機中」。Cloudflare 側の取りこぼしと判断）。ユーザーが連携に警告がないことを確認した上で、空コミット `1209063` を 1 件 push → デプロイ成功。`sw.js`・manifest は変更なし。
+- iPhone 実機（iOS 18.7）：7 項目すべて成功の報告。DB の記録（読み取りのみ）と照合した結果は `docs/test-report.md` の「Phase 2」。予定時刻の通知・再通知・2 台への送信・完了 / 見送り後に送らないことは記録と一致。**「編集で時刻を変えた予定の通知」は DB に編集の記録がなく、要確認**。
+- 異常なし：二重送信 0、失敗 0、期限切れ 0、止まった送信 0。cron と pg_net は正常。Phase 0・1 のデータに影響なし。
+
+### Phase 2 の判定：**完了**（実機 #7 の照合を除く）
+完成条件 5 のうち iPhone 実機分（閉じた状態での受信・タップで記録画面・延期の再通知・完了後に届かない・重複しない）を満たした。残る未検証項目（PC Chrome / FCM、404/410 の本番での無効化、Android 実機など）は `docs/test-report.md` に記録した。
