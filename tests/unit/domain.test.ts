@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { notificationSummary, type NotificationJobView } from "@/lib/domain/notify";
 import {
   formatDateShort,
   isFiveMinuteTime,
@@ -157,5 +158,26 @@ describe("状態と理由", () => {
     expect(REASON_CODES).toHaveLength(7);
     expect(isReasonCode("tired")).toBe(true);
     expect(isReasonCode("lazy")).toBe(false);
+  });
+});
+
+describe("notificationSummary（今日の画面の通知の1行）", () => {
+  const j = (over: Partial<NotificationJobView>): NotificationJobView => ({
+    occurrence_id: "o1", kind: "initial", fire_at: "2026-11-09T22:00:00Z", status: "pending", sent_at: null, ...over,
+  });
+  test("通知がなければ何も出さない。取り消したジョブは出さない", () => {
+    expect(notificationSummary([])).toBeNull();
+    expect(notificationSummary([j({ status: "cancelled" })])).toBeNull();
+  });
+  test("これから送る通知を優先して出す（再通知は「再通知」）", () => {
+    expect(notificationSummary([j({ status: "sent", sent_at: "2026-11-09T22:00:20Z" }), j({ kind: "snooze", fire_at: "2026-11-09T22:30:00Z" })])).toEqual({
+      text: "再通知 07:30 に送信予定",
+      tone: "muted",
+    });
+  });
+  test("送信済み・期限切れ・失敗", () => {
+    expect(notificationSummary([j({ status: "sent", sent_at: "2026-11-09T22:00:20Z" })])!.text).toBe("通知 07:00 に送信済み");
+    expect(notificationSummary([j({ status: "expired" })])).toMatchObject({ tone: "warn", text: "通知（07:00）は送れないまま期限切れ" });
+    expect(notificationSummary([j({ status: "failed" })])!.tone).toBe("warn");
   });
 });

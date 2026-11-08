@@ -209,13 +209,15 @@ describe("cron と Phase 0 の送信経路", () => {
     ]);
   });
 
-  test("cron 用の関数は外部と通信しない（Phase 1 では通知ジョブを作らない）", async () => {
+  test("cron 用の関数は、送る時刻になったジョブがなければ外部と通信しない（Phase 2 の通知ジョブは未来の時刻だけ）", async () => {
     await db.query("select public.ensure_occurrences_all()");
     await db.query("select public.close_missed()");
     await db.query("select public.dispatch_due_push()");
     const calls = await db.query<{ n: number }>("select count(*)::int as n from net.calls");
     expect(calls.rows[0]!.n).toBe(0);
-    const jobs = await db.query<{ n: number }>("select count(*)::int as n from public.notification_jobs where kind <> 'test'");
+    const jobs = await db.query<{ n: number }>(
+      "select count(*)::int as n from public.notification_jobs where kind <> 'test' and status = 'pending' and fire_at <= now()",
+    );
     expect(jobs.rows[0]!.n).toBe(0);
   });
 

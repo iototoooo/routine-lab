@@ -15,6 +15,7 @@ import type { RoutineSettings } from "@/lib/domain/routine";
 import type { PostponeOption } from "@/lib/domain/postpone";
 import type { ReasonCode } from "@/lib/domain/reasons";
 import type { StartSource } from "@/lib/domain/record";
+import type { NotificationJobView } from "@/lib/domain/notify";
 
 const OCC_COLS =
   "id, routine_id, routine_version_id, planned_date, planned_start_at, planned_duration_min, status, next_remind_at, postpone_count, closed_at";
@@ -22,6 +23,8 @@ const EXEC_COLS =
   "id, occurrence_id, planned_date, actual_start_at, actual_end_at, actual_duration_min, executed_date, is_late_day, start_source, recorded_at, superseded_by";
 const VERSION_COLS =
   "id, routine_id, version_no, name, note, weekdays, start_time, duration_min, snooze_min, valid_from, valid_to, change_reason, source, created_at";
+
+const JOB_COLS = "occurrence_id, kind, fire_at, status, sent_at";
 
 const db = () => getSupabase();
 
@@ -33,13 +36,22 @@ export async function ensureOccurrences(): Promise<void> {
 async function withNamesAndExecutions(occ: Occurrence[]): Promise<OccurrenceView[]> {
   if (occ.length === 0) return [];
   const routineIds = [...new Set(occ.map((o) => o.routine_id))];
-  const [routines, executions] = await Promise.all([
+  const occIds = occ.map((o) => o.id);
+  const [routines, executions, jobs] = await Promise.all([
     db().from("routines").select("id, name").in("id", routineIds),
-    db().from("executions").select(EXEC_COLS).in("occurrence_id", occ.map((o) => o.id)).is("superseded_by", null),
+    db().from("executions").select(EXEC_COLS).in("occurrence_id", occIds).is("superseded_by", null),
+    db().from("notification_jobs").select(JOB_COLS).in("occurrence_id", occIds),
   ]);
   const names = new Map(unwrap<{ id: string; name: string }[]>(routines).map((r) => [r.id, r.name]));
   const execs = new Map(unwrap<Execution[]>(executions).map((e) => [e.occurrence_id, e]));
-  return occ.map((o) => ({ ...o, routine_name: names.get(o.routine_id) ?? "（不明）", execution: execs.get(o.id) ?? null }));
+  const jobsByOcc = new Map<string, NotificationJobView[]>();
+  for (const j of unwrap<NotificationJobView[]>(jobs)) jobsByOcc.set(j.occurrence_id, [...(jobsByOcc.get(j.occurrence_id) ?? []), j]);
+  return occ.map((o) => ({
+    ...o,
+    routine_name: names.get(o.routine_id) ?? "（不明）",
+    execution: execs.get(o.id) ?? null,
+    jobs: jobsByOcc.get(o.id) ?? [],
+  }));
 }
 
 /** 指定した日付（JST）の予定（時刻順） */

@@ -235,6 +235,12 @@ routine-lab/
   - Playwright（ローカル `npx serve out` ＋ dev Supabase）：ログイン後の主要フロー（OTP 部分はテスト用ユーザーのセッション注入で代替）。
 - **完了条件**：完成条件 1〜4 を満たす。CI（ubuntu）で test/build が通り、Pages の本番 URL で動く。
 
+#### Phase 1 の実績（2026-11-07 完了）
+詳細は `docs/phase1-plan.md`（8〜11章）と `docs/test-report.md`。
+- 5 表（routines / routine_versions / occurrences / executions / occurrence_events）＋分析用ビュー `occurrence_facts`、書き込みは RPC だけ、履歴は DB のトリガーで保護。cron は 0:00 / 0:05 JST。
+- **計画からの変更点**：DB テストは dev プロジェクトではなく、手元の PGlite（WASM の PostgreSQL）に全マイグレーションを適用して行う（1 プロジェクト運用のため）。本番では、最後に必ず取り消すスモーク SQL で確認する。Playwright も Supabase への通信を偽の応答に置き換えて行う。通知ジョブは作らず Phase 2 に回した（延期の時刻は `next_remind_at` とイベントに保存済み）。
+- iPhone 実機で登録・表示・完了・延期・見送り・変更履歴・比較・テスト通知の 9 項目が成功。
+
 ### Phase 2：通知の本実装（F-301〜307, 302, 303, 310）
 - **実装**：`notification_jobs`/`notification_deliveries`、`claim_due_jobs`/`finish_job`、毎分 cron（due がある時だけ pg_net）、`send-push` 本番版（複数端末、404/410 無効化、期限切れ、回収）、記録/延期/見送り時のジョブ取消・snooze 追加、設定画面（許可・端末一覧・解除・iOS 案内・ロック画面の注意）、今日画面に状態（未通知・通知済み・延期中…）。
 - **テスト**：Vitest（期限切れ判定・ペイロード生成・期限の純粋関数）、DB テスト（同じジョブを2並列で claim しても1回だけ／記録後のジョブが cancelled／sending の回収）、Edge Function を手動起動して `notification_deliveries` を確認、認証なし・他人・回数超過の拒否テスト（Phase 0 と同じ項目を自動テスト化）、iPhone 実機で **アプリを閉じた状態** の「予定時刻」「10分後延期」の通知とタップ遷移、重複しないこと。PC Chrome/Edge で同じ項目を代替確認。

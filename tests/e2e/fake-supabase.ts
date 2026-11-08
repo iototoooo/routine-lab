@@ -47,6 +47,12 @@ export class FakeSupabase {
     ],
     executions: [],
     occurrence_events: [],
+    // Phase 2：今日 7:00 の通知は送信済み、今夜 21:00 と明日 7:00 は送信待ち
+    notification_jobs: [
+      { occurrence_id: IDS.occToday, kind: "initial", fire_at: jstIso(TODAY, "07:00"), status: "sent", sent_at: jstIso(TODAY, "07:00") },
+      { occurrence_id: IDS.occTonight, kind: "initial", fire_at: jstIso(TODAY, "21:00"), status: "pending", sent_at: null },
+      { occurrence_id: IDS.occTomorrow, kind: "initial", fire_at: jstIso("2026-11-11", "07:00"), status: "pending", sent_at: null },
+    ],
   };
 
   occ(oid: string, rid: string, vid: string, date: string, time: string, dur: number): Row {

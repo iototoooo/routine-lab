@@ -42,6 +42,7 @@ create view vault.decrypted_secrets as select id, name, secret as decrypted_secr
 
 create schema net;
 create table net.calls (id bigserial primary key, url text, headers jsonb, body jsonb);
+create table net.http_request_queue (id bigserial primary key);
 create function net.http_post(url text, headers jsonb, body jsonb, timeout_milliseconds integer)
 returns bigint language sql as $$
   insert into net.calls (url, headers, body) values (url, headers, body) returning id
@@ -73,10 +74,11 @@ export function migrationFiles(): string[] {
   return readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
 }
 
-export async function createTestDb(): Promise<PGlite> {
+/** upTo を指定すると、そのバージョン（ファイル名の先頭14桁）までのマイグレーションだけを適用する */
+export async function createTestDb(opts: { upTo?: string } = {}): Promise<PGlite> {
   const db = await PGlite.create({ extensions: { btree_gist } });
   await db.exec(SUPABASE_STUB);
-  for (const f of migrationFiles()) {
+  for (const f of migrationFiles().filter((x) => !opts.upTo || x.slice(0, 14) <= opts.upTo!)) {
     try {
       await db.exec(prepareMigration(readFileSync(join(MIGRATIONS_DIR, f), "utf8")));
     } catch (e) {

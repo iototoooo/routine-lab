@@ -1,5 +1,6 @@
 // DB の行の型（supabase/migrations/20261107000000_phase1_schema.sql と同じ列）
 import type { OccurrenceStatus } from "@/lib/domain/status";
+import type { NotificationJobView } from "@/lib/domain/notify";
 import type { ReasonCode } from "@/lib/domain/reasons";
 import type { PostponeOption } from "@/lib/domain/postpone";
 import type { StartSource } from "@/lib/domain/record";
@@ -71,8 +72,9 @@ export type OccurrenceEvent = {
   created_at: string;
 };
 
-/** 画面で使う：予定＋ルーティン名＋今の実績 */
+/** 画面で使う：予定＋ルーティン名＋今の実績＋通知ジョブ */
 export type OccurrenceView = Occurrence & {
   routine_name: string;
   execution: Execution | null;
+  jobs: NotificationJobView[];
 };

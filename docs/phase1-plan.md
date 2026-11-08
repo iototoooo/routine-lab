@@ -1,4 +1,4 @@
-# Phase 1 実装計画（2026-11-07 承認・ローカル実装済み）
+# Phase 1 実装計画（2026-11-07 承認・完了）
 
 `docs/requirements.md`（変更しない）と `docs/plan.md`（第2版）の Phase 1 を、実装できる粒度に具体化したもの。
 Phase 0 の実績（`docs/test-report.md`）を前提にする。**DB への適用・公開は、それぞれ直前に承認を得る。**
@@ -136,3 +136,8 @@ Phase 0 の実績（`docs/test-report.md`）を前提にする。**DB への適�
 - 実行：`npx supabase db query --remote=vmlxzeraeimxgkjxivnl -f supabase/tests/phase1_smoke.sql --yes`
 - 結果：`SMOKE_OK checks=13 (rolled back)`（13 項目すべて成功。CLI は意図どおりエラー終了）。
 - 実行後の確認（読み取りのみ）：Phase 1 の 5 表は 0 行。`auth.users` 1 件・`profiles` 1 件で前後同じ（内容の md5 も同じ）、`smoke-*@example.invalid` は 0 件。Phase 0 の表・Vault・cron・関数・権限のスナップショットは前後で差分なし。pg_net の応答記録は直近 15 分で 0 件、毎分の通知 cron は失敗 0。
+
+## 11. 公開と完了判定（2026-11-07）
+- commit `dd8370c` を main に push。CI（run 42379067206）と Cloudflare Pages の自動デプロイが成功。5 画面の配信、`sw.js`・manifest が前回と同じであることを確認。
+- iPhone 実機で 9 項目すべて成功（`docs/test-report.md` の Phase 1）。**Phase 1 は完了。**
+- 次は Phase 2（通知の本実装）：`docs/phase2-plan.md`。

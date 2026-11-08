@@ -491,6 +491,14 @@ const EVENT_LABEL: Record<OccurrenceEvent["type"], string> = {
   notified: "通知",
 };
 
+/** 通知イベントの補足（再通知か・受け付けた端末の数。受け付け＝端末での表示ではない） */
+function notifiedDetail(detail: Record<string, unknown> | null): string {
+  if (!detail) return "";
+  const kind = detail.kind === "snooze" ? "再通知" : "予定時刻";
+  const n = typeof detail.accepted_devices === "number" ? `・${detail.accepted_devices}台へ送信` : "";
+  return `（${kind}${n}）`;
+}
+
 function EventList({ events }: { events: OccurrenceEvent[] }) {
   if (events.length === 0) return null;
   return (
@@ -503,6 +511,7 @@ function EventList({ events }: { events: OccurrenceEvent[] }) {
               {formatDateShort(jstDate(new Date(ev.created_at)))} {jstTime(new Date(ev.created_at))}
             </span>{" "}
             <span className="font-bold">{EVENT_LABEL[ev.type]}</span>
+            {ev.type === "notified" && <>{notifiedDetail(ev.detail)}</>}
             {ev.remind_at && <> → 再通知 {jstTime(new Date(ev.remind_at))}</>}
             {ev.reason_code && <>（{REASON_LABEL[ev.reason_code]}{ev.reason_text ? `：${ev.reason_text}` : ""}）</>}
           </li>

@@ -6,6 +6,7 @@ import { canRecord } from "@/lib/domain/status";
 import { formatDuration } from "@/lib/domain/routine";
 import { jstTime, minutesBetween } from "@/lib/time/jst";
 import { StatusBadge, btnPrimary, btnSecondary, card } from "@/components/ui";
+import { notificationSummary } from "@/lib/domain/notify";
 
 /** 予定時刻と実行時刻の差（例：+12分、予定どおり） */
 export function delayLabel(plannedStartAt: string, actualStartAt: string): string {
@@ -27,6 +28,7 @@ export function OccurrenceCard({
 }) {
   const recordable = canRecord(o, now);
   const started = new Date(o.planned_start_at).getTime() <= now.getTime();
+  const notice = notificationSummary(o.jobs ?? []);
   return (
     <li className={card}>
       <div className="flex items-start justify-between gap-3">
@@ -41,6 +43,9 @@ export function OccurrenceCard({
             <p className="mt-1 text-sm text-muted">
               再通知 {jstTime(new Date(o.next_remind_at))}（延期 {o.postpone_count}回）
             </p>
+          )}
+          {notice && (
+            <p className={`mt-1 text-sm ${notice.tone === "warn" ? "text-danger" : "text-muted"}`}>{notice.text}</p>
           )}
           {o.execution && (
             <p className="mt-1 text-sm text-muted">

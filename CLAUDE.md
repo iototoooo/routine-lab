@@ -79,5 +79,7 @@
 - DB / RLS：`tests/db/*.test.ts`。`tests/db/harness.ts` が PGlite に全マイグレーションを適用する（Supabase の既定の権限・auth・vault・net・cron は最小の代役）。時刻に依存する規則は内部の関数（`_record_done` など、`p_now` を受け取る）で確かめる。
 - ブラウザ：`tests/e2e/*.spec.ts`（Playwright、Pixel 7 / iPhone 14 の表示）。Supabase への通信は `tests/e2e/fake-supabase.ts` がすべて横取りする。
 - 本番 DB の確認は `supabase/tests/phase1_smoke.sql`（必ず例外で終わり、全体が取り消される。実行は承認後のみ）。
-- Phase 1 を本番から取り消すときは `supabase/rollback/20261107_phase1_down.sql`（承認後のみ。`tests/db/rollback.test.ts` で確認済み）。
+- Phase 2 の本番 DB の確認は `supabase/tests/phase2_smoke.sql`（同じ方式。`claim_due_jobs` は呼ばない）。
+- 本番から取り消すときは `supabase/rollback/20261108_phase2_down.sql`（Phase 2 → 1）・`20261107_phase1_down.sql`（Phase 1 → 0）。承認後のみ。`tests/db/rollback.test.ts` で確認済み。
+- 通知ジョブは予定の状態からトリガー（`occurrences_sync_jobs`）が作る・取り消す。予定を変える処理を足しても、ジョブを直接いじらない。send-push の本体は `_shared/dispatch.ts`（`tests/unit/dispatch.test.ts`）。
 - iPhone 実機のテストは `docs/plan.md` 9章に従う。Android 実機はないため PC の Chrome / Edge で代替し、README に「Android 実機では未検証」と書く。

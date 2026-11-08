@@ -50,6 +50,8 @@ export async function deliverToUser(params: {
   store: DeliveryStore;
   send: Sender;
   ttlSeconds?: number;
+  /** Push サービスの Topic（届く前の古い通知を置き換えるキー。既定は payload.tag） */
+  topic?: string;
   /** 送信先の検査（既定：標準プッシュサービスだけ。テストで差し替える） */
   allowEndpoint?: (endpoint: string) => boolean;
 }): Promise<DeliveryOutcome[]> {
@@ -68,7 +70,7 @@ export async function deliverToUser(params: {
     try {
       const req = await buildPushRequest(sub, params.payload, params.vapid, {
         ttlSeconds: params.ttlSeconds ?? 3600,
-        topic: params.payload.tag,
+        topic: params.topic ?? params.payload.tag,
       });
       const res = await params.send(req);
       const ok = res.status >= 200 && res.status < 300;

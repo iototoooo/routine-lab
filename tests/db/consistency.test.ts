@@ -6,6 +6,7 @@ import { createTestDb, createUser, jst } from "./harness";
 import { REASON_CODES } from "@/lib/domain/reasons";
 import { POSTPONE_OPTIONS, remindAtFor } from "@/lib/domain/postpone";
 import { OCCURRENCE_STATUSES } from "@/lib/domain/status";
+import { CANCEL_REASONS, JOB_STATUSES } from "@/lib/domain/notify";
 import { occurrenceDeadline } from "@/lib/time/jst";
 
 let db: PGlite;
@@ -27,6 +28,11 @@ test("理由コード・延期の選択肢・予定の状態の一覧が DB と�
   expect(listIn(await checkDef("public.occurrence_events", "reason_code"))).toEqual([...REASON_CODES]);
   expect(listIn(await checkDef("public.occurrence_events", "postpone_option"))).toEqual([...POSTPONE_OPTIONS]);
   expect(listIn(await checkDef("public.occurrences", "status"))).toEqual([...OCCURRENCE_STATUSES]);
+});
+
+test("通知ジョブの状態・取り消しの理由の一覧が DB と同じ", async () => {
+  expect(listIn(await checkDef("public.notification_jobs", "status"))).toEqual([...JOB_STATUSES]);
+  expect(listIn(await checkDef("public.notification_jobs", "cancel_reason"))).toEqual([...CANCEL_REASONS]);
 });
 
 test("記録の期限が DB と同じ", async () => {

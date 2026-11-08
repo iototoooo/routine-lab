@@ -3,6 +3,7 @@
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.118.0";
 import type { DeliveryOutcome, DeliveryStore, Subscription } from "./deliver.ts";
+import type { DispatchDb, Job, JobPayloadRow } from "./dispatch.ts";
 import type { VapidKeys } from "./webpush.ts";
 import { pickServiceKey } from "./security.ts";
 
@@ -53,6 +54,35 @@ export function supabaseStore(db: SupabaseClient): DeliveryStore {
         p_error: o.error,
       });
       if (error) console.error("record_push_outcome failed", error.code);
+    },
+  };
+}
+
+/** send-push が使う DB 関数（すべて service_role 専用。docs/phase2-plan.md 3章） */
+export function dispatchDb(db: SupabaseClient): DispatchDb {
+  return {
+    async claim(limit) {
+      const { data, error } = await db.rpc("claim_due_jobs", { p_limit: limit });
+      if (error) throw new Error(`claim_due_jobs failed: ${error.code}`);
+      return (data ?? []) as Job[];
+    },
+    async payloads(jobIds) {
+      const { data, error } = await db.rpc("job_payloads", { p_job_ids: jobIds });
+      if (error) throw new Error(`job_payloads failed: ${error.code}`);
+      return (data ?? []) as JobPayloadRow[];
+    },
+    async finish(jobId, ok, err) {
+      const { error } = await db.rpc("finish_job", { p_job_id: jobId, p_ok: ok, p_error: err });
+      if (error) console.error("finish_job failed", error.code);
+    },
+    async retry(jobId, err) {
+      const { data, error } = await db.rpc("retry_job", { p_job_id: jobId, p_error: err });
+      if (error) throw new Error(`retry_job failed: ${error.code}`);
+      return String(data);
+    },
+    async cancel(jobId) {
+      const { error } = await db.rpc("cancel_job", { p_job_id: jobId });
+      if (error) console.error("cancel_job failed", error.code);
     },
   };
 }

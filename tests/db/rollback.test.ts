@@ -58,11 +58,56 @@ async function seedPhase0(db: PGlite) {
   );
 }
 
+describe("Phase 2 の取り消し SQL", () => {
+  it("反映 → 予定・通知の操作 → 取り消しで Phase 1 だけの状態に戻り、Phase 0・1 の行は消えない", async () => {
+    const files = migrationFiles();
+    const upToPhase1 = files.filter((f) => f < "20261108");
+    const phase2 = files.filter((f) => f.startsWith("20261108"));
+    expect(phase2).toHaveLength(3);
+
+    const base = await PGlite.create({ extensions: { btree_gist } });
+    await base.exec(SUPABASE_STUB);
+    await apply(base, upToPhase1);
+    const expected = await fingerprint(base);
+
+    const db = await PGlite.create({ extensions: { btree_gist } });
+    await db.exec(SUPABASE_STUB);
+    await apply(db, upToPhase1);
+    await seedPhase0(db);
+    await apply(db, phase2);
+    // Phase 2 の状態で予定を作り（通知ジョブができる）、延期もしておく
+    const u = "00000000-0000-4000-8000-0000000000a1";
+    const r = await db.query<{ id: string }>(
+      "select public._create_routine($1, '2026-11-10 06:00+09', 'x', null, '{1,2,3,4,5,6,7}', '07:00', 15, 10) as id",
+      [u],
+    );
+    const occ = await db.query<{ id: string }>("select id from public.occurrences where routine_id = $1 order by planned_date limit 1", [r.rows[0]!.id]);
+    await db.query("select public._postpone($1, '2026-11-10 06:00+09', $2, '10m', null, null, null)", [u, occ.rows[0]!.id]);
+    const before = await db.query<{ n: number }>(
+      "select ((select count(*) from public.routines) + (select count(*) from public.occurrences) + (select count(*) from public.occurrence_events) + (select count(*) from public.notification_jobs))::int as n",
+    );
+    expect((await fingerprint(db)).length).toBeGreaterThan(expected.length);
+
+    await db.exec(read("rollback/20261108_phase2_down.sql"));
+
+    expect(await fingerprint(db)).toEqual(expected);
+    const after = await db.query<{ n: number }>(
+      "select ((select count(*) from public.routines) + (select count(*) from public.occurrences) + (select count(*) from public.occurrence_events) + (select count(*) from public.notification_jobs))::int as n",
+    );
+    expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
+    const open = await db.query<{ n: number }>(
+      "select count(*)::int as n from public.notification_jobs where kind <> 'test' and status in ('pending', 'sending')",
+    );
+    expect(open.rows[0]!.n).toBe(0);
+  });
+});
+
 describe("Phase 1 の取り消し SQL", () => {
   it("反映 → 取り消しで Phase 0 だけの状態に戻り、Phase 0 の行は変わらない", async () => {
     const files = migrationFiles();
-    const phase0 = files.filter((f) => !isPhase1(f));
+    const phase0 = files.filter((f) => f < "20261107");
     const phase1 = files.filter(isPhase1);
+    // （Phase 2 以降のファイルはこのテストの対象外）
     expect(phase1).toHaveLength(4);
 
     const base = await PGlite.create({ extensions: { btree_gist } });

@@ -21,3 +21,50 @@ export function testPayload(tag: string, sentAt: Date): NotificationPayload {
     url: `/record/?o=test-${encodeURIComponent(tag)}`,
   };
 }
+
+/** 予定の通知に使う情報（DB 関数 job_payloads の1行） */
+export type OccurrenceInfo = {
+  occurrence_id: string;
+  kind: "initial" | "snooze";
+  routine_name: string;
+  planned_start_at: string;
+  planned_duration_min: number;
+  postpone_count: number;
+};
+
+const jstParts = (d: Date) => {
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h23",
+    weekday: "short",
+  }).formatToParts(d);
+  const get = (t: string) => p.find((x) => x.type === t)?.value ?? "";
+  return { ymd: `${get("year")}-${get("month")}-${get("day")}`, md: `${get("month")}/${get("day")}`, hm: `${Number(get("hour"))}:${get("minute")}`, wd: get("weekday") };
+};
+const WEEKDAY_JA: Record<string, string> = { Mon: "月", Tue: "火", Wed: "水", Thu: "木", Fri: "金", Sat: "土", Sun: "日" };
+
+/**
+ * 予定の通知の文面（F-301・F-304、判断事項5）。
+ *   予定時刻：タイトル「ルーティン名」、本文「7:00〜 15分」
+ *   再通知　：タイトル「ルーティン名（再通知）」、本文「予定 7:00〜 15分・延期1回目」
+ * 送る日と予定日が違う（明日の同じ時刻への延期・0:00 をまたぐ再通知）ときは、予定日も入れる。
+ * tag は予定 ID（端末の上で同じ予定の通知を置き換える。F-305）。
+ */
+export function occurrencePayload(info: OccurrenceInfo, sentAt: Date): NotificationPayload {
+  const planned = jstParts(new Date(info.planned_start_at));
+  const today = jstParts(sentAt);
+  const when = planned.ymd === today.ymd ? planned.hm : `${planned.md}（${WEEKDAY_JA[planned.wd] ?? ""}）${planned.hm}`;
+  const span = `${when}〜 ${info.planned_duration_min}分`;
+  const isSnooze = info.kind === "snooze";
+  return {
+    title: isSnooze ? `${info.routine_name}（再通知）` : info.routine_name,
+    body: isSnooze ? `予定 ${span}・延期${info.postpone_count}回目` : span,
+    tag: info.occurrence_id,
+    url: `/record/?o=${encodeURIComponent(info.occurrence_id)}`,
+  };
+}
