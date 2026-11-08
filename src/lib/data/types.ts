@@ -11,6 +11,8 @@ export type Routine = {
   note: string | null;
   archived_at: string | null;
   created_at: string;
+  /** テスト用：分析の集計から外す（Phase 3。予定・実績・通知には影響しない） */
+  exclude_from_analytics: boolean;
 };
 
 export type RoutineVersion = {

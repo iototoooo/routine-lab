@@ -14,6 +14,7 @@ const REQUIRED = [
   "routines/index.html",
   "routines/edit/index.html",
   "routines/detail/index.html",
+  "analytics/index.html",
   "404.html",
   "sw.js",
   "manifest.webmanifest",

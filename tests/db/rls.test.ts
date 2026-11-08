@@ -15,7 +15,10 @@ const PHASE1_TABLES = ["routines", "routine_versions", "occurrences", "execution
 const CLIENT_RPCS = [
   "ensure_occurrences", "create_routine", "edit_routine", "archive_routine",
   "record_done", "postpone", "skip_occurrence",
+  "set_routine_analytics", // Phase 3
 ];
+// 分析用のビュー（security_invoker。元の表の RLS が効く）
+const VIEWS = ["occurrence_facts", "occurrence_reason_facts"];
 
 beforeAll(async () => {
   db = await createTestDb();
@@ -52,7 +55,7 @@ describe("表の設定", () => {
       `select grantee, table_name, privilege_type from information_schema.role_table_grants
         where table_schema = 'public' and grantee in ('anon', 'authenticated')
           and table_name = any($1::text[]) order by 1, 2, 3`,
-      [[...PHASE1_TABLES, "occurrence_facts"]],
+      [[...PHASE1_TABLES, ...VIEWS]],
     );
     expect(r.rows.filter((x) => x.grantee === "anon")).toEqual([]);
     expect(new Set(r.rows.map((x) => x.privilege_type))).toEqual(new Set(["SELECT"]));
@@ -86,7 +89,7 @@ describe("本人のデータだけ（RLS）", () => {
   test("本人は自分の行を読める", async () => {
     const counts = await as(db, "authenticated", alice, async (tx) => {
       const out: Record<string, number> = {};
-      for (const t of [...PHASE1_TABLES, "occurrence_facts"]) {
+      for (const t of [...PHASE1_TABLES, ...VIEWS]) {
         out[t] = Number((await tx.query<{ n: number }>(`select count(*)::int as n from public.${t}`)).rows[0]!.n);
       }
       return out;
@@ -96,22 +99,24 @@ describe("本人のデータだけ（RLS）", () => {
     expect(counts.occurrences).toBeGreaterThanOrEqual(1);
     expect(counts.occurrence_events).toBeGreaterThanOrEqual(1);
     expect(counts.occurrence_facts).toBe(counts.occurrences);
+    expect(counts.occurrence_reason_facts).toBe(1); // 延期 1 件
   });
 
   test("他人（bob）には alice の行が1件も見えない", async () => {
     const counts = await as(db, "authenticated", bob, async (tx) => {
       const out: number[] = [];
-      for (const t of [...PHASE1_TABLES, "occurrence_facts"]) {
+      for (const t of [...PHASE1_TABLES, ...VIEWS]) {
         out.push(Number((await tx.query<{ n: number }>(`select count(*)::int as n from public.${t}`)).rows[0]!.n));
       }
       return out;
     });
-    expect(counts).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(counts).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
   test("ログインしていない（anon）は表を読めない", async () => {
     expect(await errorOf(as(db, "anon", null, (tx) => tx.query("select * from public.routines")))).toMatch(/permission denied/);
     expect(await errorOf(as(db, "anon", null, (tx) => tx.query("select * from public.occurrence_facts")))).toMatch(/permission denied/);
+    expect(await errorOf(as(db, "anon", null, (tx) => tx.query("select * from public.occurrence_reason_facts")))).toMatch(/permission denied/);
   });
 
   test("bob は alice の予定を記録・延期・見送りできず、ルーティンも編集・アーカイブできない", async () => {
@@ -121,6 +126,7 @@ describe("本人のデータだけ（RLS）", () => {
       ["select public.skip_occurrence($1, 'other', null)", [aliceOcc]],
       ["select public.edit_routine($1, 'x', null, '{1}', '07:00', 15, 10, current_date + 1, null)", [aliceRoutine]],
       ["select public.archive_routine($1)", [aliceRoutine]],
+      ["select public.set_routine_analytics($1, true)", [aliceRoutine]],
     ] as const;
     for (const [sql, params] of calls) {
       expect(await errorOf(as(db, "authenticated", bob, (tx) => tx.query(sql, [...params])))).toMatch(/not_found/);

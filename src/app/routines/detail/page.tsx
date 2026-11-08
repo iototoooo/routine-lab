@@ -7,14 +7,18 @@ import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
 import { delayLabel } from "@/components/OccurrenceCard";
 import { ErrorBox, Loading, Section, StatusBadge, btnSecondary, card } from "@/components/ui";
-import { getRoutine, listRoutineOccurrences, type RoutineWithVersions } from "@/lib/data/api";
+import { getRoutine, listRoutineOccurrences, loadRoutineFacts, setRoutineAnalytics, type RoutineWithVersions } from "@/lib/data/api";
+import type { FactRow } from "@/lib/analytics/types";
+import { formatMinutes, formatRate, type Rate, type Sample } from "@/lib/analytics/stats";
+import { compareWithPrevious, versionStats, type ComparedWindow } from "@/lib/analytics/versions";
 import { errorMessage } from "@/lib/data/errors";
 import type { OccurrenceView } from "@/lib/data/types";
 import { formatDuration, formatWeekdays } from "@/lib/domain/routine";
 import { hhmm, latestVersion, neverEffective, periodLabel, versionOn } from "@/lib/domain/versions";
 import { addDays, formatDateShort, jstDate, jstTime } from "@/lib/time/jst";
 
-// S-06 ルーティン詳細（F-105）：版の履歴（設定・有効期間・変更理由・きっかけ）と、直近4週の予定と実績
+// S-06 ルーティン詳細（F-105）：版の履歴（設定・有効期間・変更理由・きっかけ）と、直近4週の予定と実績。
+// Phase 3：版ごとの集計と直前の版との比較（期間と件数を明示）、「分析に含めない（テスト用）」の切り替え
 
 export default function RoutineDetailPage() {
   return (
@@ -34,13 +38,17 @@ function DetailBody() {
   const id = useSearchParams().get("id") ?? "";
   const [routine, setRoutine] = useState<RoutineWithVersions | null | undefined>(undefined);
   const [occ, setOcc] = useState<OccurrenceView[]>([]);
+  const [facts, setFacts] = useState<FactRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
-    const from = addDays(jstDate(new Date()), -27);
-    Promise.all([getRoutine(id), listRoutineOccurrences(id, from)])
-      .then(([r, o]) => {
+    const today = jstDate(new Date());
+    const from = addDays(today, -27);
+    Promise.all([getRoutine(id), listRoutineOccurrences(id, from), loadRoutineFacts(id, today)])
+      .then(([r, o, f]) => {
         setRoutine(r);
         setOcc(o);
+        setFacts(f);
       })
       .catch((e) => {
         setError(errorMessage(e));
@@ -54,6 +62,21 @@ function DetailBody() {
   const today = jstDate(new Date());
   const cur = versionOn(routine.versions, today) ?? latestVersion(routine.versions);
   const history = [...routine.versions].sort((a, b) => b.version_no - a.version_no);
+  const perVersion = versionStats(facts, routine.versions);
+  const latest = latestVersion(routine.versions);
+  const comparison = latest ? compareWithPrevious(facts, routine.versions, latest.id, today) : null;
+  const toggleAnalytics = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await setRoutineAnalytics(routine.id, !routine.exclude_from_analytics);
+      setRoutine({ ...routine, exclude_from_analytics: !routine.exclude_from_analytics });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -75,6 +98,85 @@ function DetailBody() {
           </Link>
         )}
       </div>
+
+      <Section title="分析">
+        <div className={`${card} space-y-3 text-sm`}>
+          <Link href={`/analytics/?r=${routine.id}&p=12w`} className={btnSecondary}>
+            このルーティンを分析で見る
+          </Link>
+          <div>
+            <p>
+              分析での扱い：
+              <span className="font-bold">{routine.exclude_from_analytics ? "含めない（テスト用）" : "含める"}</span>
+            </p>
+            <button type="button" className={`${btnSecondary} mt-2`} onClick={toggleAnalytics} disabled={saving}>
+              {routine.exclude_from_analytics ? "分析に含める" : "分析に含めない（テスト用にする）"}
+            </button>
+            <p className="mt-1 text-xs text-muted">
+              テスト用にすると、全体の分析から外れます（このルーティンを選べば見られます）。予定・記録・通知は変わりません。
+            </p>
+            <ErrorBox message={error} />
+          </div>
+        </div>
+      </Section>
+
+      <Section title="版ごとの集計">
+        {perVersion.length === 0 ? (
+          <p className="text-sm text-muted">まだ記録がありません。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <caption className="sr-only">版ごとの集計</caption>
+              <thead>
+                <tr className="text-left text-muted">
+                  <th className="py-1 pr-2 font-normal">版・期間</th>
+                  <th className="py-1 pr-2 font-normal">達成率</th>
+                  <th className="py-1 font-normal">遅れ（中央値）</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perVersion.map((v) => (
+                  <tr key={v.version.id} className="border-t border-border align-top">
+                    <td className="py-2 pr-2">
+                      第{v.version.version_no}版
+                      <span className="block text-xs text-muted">
+                        {formatDateShort(v.from)}〜{v.to ? formatDateShort(v.to) : ""}
+                      </span>
+                      <span className="block text-xs text-muted">
+                        {hhmm(v.version.start_time)}〜 {formatDuration(v.version.duration_min)}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-2">
+                      <RateCell rate={v.stats.rate} />
+                    </td>
+                    <td className="py-2">
+                      <SampleCell s={v.stats.delayMedian} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {comparison && (
+          <div className={`${card} text-sm`}>
+            <p className="font-bold">
+              第{comparison.before.version.version_no}版と第{comparison.after.version.version_no}版（同じ {comparison.days} 日間で比較）
+            </p>
+            <dl className="mt-1 space-y-1">
+              <CompareRow label="変更前" w={comparison.before} />
+              <CompareRow label="変更後" w={comparison.after} />
+            </dl>
+            {comparison.warnings.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs text-muted">
+                {comparison.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Section>
 
       <Section title="設定の履歴">
         <ol className="space-y-2">
@@ -144,6 +246,39 @@ function DetailBody() {
           </div>
         )}
       </Section>
+    </div>
+  );
+}
+
+function RateCell({ rate }: { rate: Rate }) {
+  if (rate.rate === null) return <span className="text-muted">データなし</span>;
+  return (
+    <span>
+      {formatRate(rate)}
+      {rate.reference && <span className="ml-1 inline-block whitespace-nowrap rounded border border-border px-1 text-xs text-muted">参考値</span>}
+    </span>
+  );
+}
+
+function SampleCell({ s }: { s: Sample }) {
+  if (s.value === null) return <span className="text-muted">データなし</span>;
+  return (
+    <span>
+      {formatMinutes(s.value)}（{s.n}件）
+      {s.reference && <span className="ml-1 inline-block whitespace-nowrap rounded border border-border px-1 text-xs text-muted">参考値</span>}
+    </span>
+  );
+}
+
+function CompareRow({ label, w }: { label: string; w: ComparedWindow }) {
+  return (
+    <div>
+      <dt className="text-muted">
+        {label}：第{w.version.version_no}版 {formatDateShort(w.from)}〜{formatDateShort(w.to)}
+      </dt>
+      <dd>
+        達成率 <RateCell rate={w.stats.rate} />・遅れ <SampleCell s={w.stats.delayMedian} />
+      </dd>
     </div>
   );
 }

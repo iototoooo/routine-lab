@@ -162,8 +162,10 @@ test("ルーティンの編集：変更前と変更後を確認してから、�
     p_change_reason: "7時は慌ただしいため",
   });
   // 詳細画面の履歴に、両方の版と理由が出る
-  await expect(page.getByText("第2版")).toBeVisible();
-  await expect(page.getByText("第1版")).toBeVisible();
+  // 「版ごとの集計」（Phase 3）にも版の番号が出るので、設定の履歴の中で確かめる
+  const history = page.locator("section", { has: page.getByRole("heading", { name: "設定の履歴" }) });
+  await expect(history.getByText("第2版")).toBeVisible();
+  await expect(history.getByText("第1版")).toBeVisible();
   await expect(page.getByText(/変更理由：7時は慌ただしいため・きっかけ：手動/)).toBeVisible();
 });
 

@@ -58,6 +58,51 @@ async function seedPhase0(db: PGlite) {
   );
 }
 
+describe("Phase 3 の取り消し SQL", () => {
+  it("反映 → 印の切り替え → 取り消しで Phase 2 だけの状態に戻り、予定・実績・イベント・通知ジョブは変わらない", async () => {
+    const files = migrationFiles();
+    const upToPhase2 = files.filter((f) => f < "20261109");
+    const phase3 = files.filter((f) => f.startsWith("20261109"));
+    expect(phase3).toHaveLength(1);
+
+    const base = await PGlite.create({ extensions: { btree_gist } });
+    await base.exec(SUPABASE_STUB);
+    await apply(base, upToPhase2);
+    const expected = await fingerprint(base);
+
+    const db = await PGlite.create({ extensions: { btree_gist } });
+    await db.exec(SUPABASE_STUB);
+    await apply(db, upToPhase2);
+    await seedPhase0(db);
+    const u = "00000000-0000-4000-8000-0000000000a1";
+    const r = await db.query<{ id: string }>(
+      "select public._create_routine($1, '2026-11-10 06:00+09', 'x', null, '{1,2,3,4,5,6,7}', '07:00', 15, 10) as id",
+      [u],
+    );
+    const occ = await db.query<{ id: string }>("select id from public.occurrences where routine_id = $1 order by planned_date limit 1", [r.rows[0]!.id]);
+    await db.query("select public._postpone($1, '2026-11-10 06:00+09', $2, '10m', null, 'tired', null)", [u, occ.rows[0]!.id]);
+    const rows = async () =>
+      (
+        await db.query<{ v: string }>(
+          `select md5(concat_ws('|',
+             (select string_agg(o::text, ',' order by o.id) from public.occurrences o),
+             (select string_agg(v::text, ',' order by v.id) from public.routine_versions v),
+             (select string_agg(e::text, ',' order by e.id) from public.occurrence_events e),
+             (select string_agg(j::text, ',' order by j.id) from public.notification_jobs j))) as v`,
+        )
+      ).rows[0]!.v;
+    const before = await rows();
+
+    await apply(db, phase3);
+    await db.query("select public._set_routine_analytics($1, now(), $2, true)", [u, r.rows[0]!.id]);
+    expect((await fingerprint(db)).length).toBeGreaterThan(expected.length);
+    await db.exec(read("rollback/20261109_phase3_down.sql"));
+
+    expect(await fingerprint(db)).toEqual(expected);
+    expect(await rows()).toBe(before);
+  });
+});
+
 describe("Phase 2 の取り消し SQL", () => {
   it("反映 → 予定・通知の操作 → 取り消しで Phase 1 だけの状態に戻り、Phase 0・1 の行は消えない", async () => {
     const files = migrationFiles();

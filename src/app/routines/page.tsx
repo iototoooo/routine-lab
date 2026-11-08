@@ -56,7 +56,10 @@ function RoutineList() {
               return (
                 <li key={r.id}>
                   <Link href={`/routines/detail/?id=${r.id}`} className={`${card} block min-h-11`}>
-                    <p className="break-words font-bold">{r.name}</p>
+                    <p className="break-words font-bold">
+                      {r.name}
+                      {r.exclude_from_analytics && <span className="ml-1 text-xs font-normal text-muted">（テスト用・分析に含めない）</span>}
+                    </p>
                     {cur && (
                       <p className="text-sm text-muted">
                         {formatWeekdays(cur.weekdays)} {hhmm(cur.start_time)}〜 {formatDuration(cur.duration_min)}

@@ -16,6 +16,7 @@ import type { PostponeOption } from "@/lib/domain/postpone";
 import type { ReasonCode } from "@/lib/domain/reasons";
 import type { StartSource } from "@/lib/domain/record";
 import type { NotificationJobView } from "@/lib/domain/notify";
+import type { FactRow, ReasonEventRow, RoutineInfo, VersionInfo } from "@/lib/analytics/types";
 
 const OCC_COLS =
   "id, routine_id, routine_version_id, planned_date, planned_start_at, planned_duration_min, status, next_remind_at, postpone_count, closed_at";
@@ -25,6 +26,12 @@ const VERSION_COLS =
   "id, routine_id, version_no, name, note, weekdays, start_time, duration_min, snooze_min, valid_from, valid_to, change_reason, source, created_at";
 
 const JOB_COLS = "occurrence_id, kind, fire_at, status, sent_at";
+const ROUTINE_COLS = "id, name, note, archived_at, created_at, exclude_from_analytics";
+const FACT_COLS =
+  "occurrence_id, routine_id, routine_version_id, version_no, planned_date, planned_weekday, planned_start_at, time_band, planned_duration_min, status, is_final, postpone_count, actual_start_at, actual_duration_min, executed_date, is_late_day, start_source, delay_min, closing_reason_code";
+const REASON_COLS = "event_id, occurrence_id, routine_id, planned_date, type, reason_code, postpone_option";
+/** 1回に読む行数（PostgREST の既定の上限 1000 行に合わせて分けて読む） */
+export const PAGE_SIZE = 1000;
 
 const db = () => getSupabase();
 
@@ -91,7 +98,7 @@ export type RoutineWithVersions = Routine & { versions: RoutineVersion[] };
 
 export async function listRoutines(): Promise<RoutineWithVersions[]> {
   const [routines, versions] = await Promise.all([
-    db().from("routines").select("id, name, note, archived_at, created_at").order("created_at"),
+    db().from("routines").select(ROUTINE_COLS).order("created_at"),
     db().from("routine_versions").select(VERSION_COLS).order("version_no"),
   ]);
   const vs = unwrap<RoutineVersion[]>(versions);
@@ -100,7 +107,7 @@ export async function listRoutines(): Promise<RoutineWithVersions[]> {
 
 export async function getRoutine(id: string): Promise<RoutineWithVersions | null> {
   const [routines, versions] = await Promise.all([
-    db().from("routines").select("id, name, note, archived_at, created_at").eq("id", id),
+    db().from("routines").select(ROUTINE_COLS).eq("id", id),
     db().from("routine_versions").select(VERSION_COLS).eq("routine_id", id).order("version_no"),
   ]);
   const r = unwrap<Routine[]>(routines)[0];
@@ -185,4 +192,71 @@ export async function skipOccurrence(occurrenceId: string, reasonCode: ReasonCod
       p_reason_text: reasonText.trim() || null,
     }),
   );
+}
+
+// ---------------------------------------------------------------------
+// Phase 3：分析（docs/phase3-plan.md 5章）。集計はブラウザで行う（src/lib/analytics/）
+// ---------------------------------------------------------------------
+
+/** 1000 行ずつ、全部を読む（並びを固定して、重複・抜けがないようにする） */
+async function readAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const rows = unwrap<T[]>(await page(from, from + PAGE_SIZE - 1));
+    out.push(...rows);
+    if (rows.length < PAGE_SIZE) return out;
+  }
+}
+
+export type AnalyticsData = {
+  facts: FactRow[];
+  events: ReasonEventRow[];
+  routines: RoutineInfo[];
+  versions: VersionInfo[];
+};
+
+/**
+ * 分析に使う本人の記録をすべて読む（RLS で本人の行だけ）。予定日が until 以前のものだけ
+ * （明日の予定は分析に入れない）。1人分なら1年で数千行ほど。
+ */
+export async function loadAnalyticsData(until: string): Promise<AnalyticsData> {
+  const [facts, events, routines, versions] = await Promise.all([
+    readAll<FactRow>((a, b) =>
+      db().from("occurrence_facts").select(FACT_COLS).lte("planned_date", until).order("planned_date").order("occurrence_id").range(a, b),
+    ),
+    readAll<ReasonEventRow>((a, b) =>
+      db().from("occurrence_reason_facts").select(REASON_COLS).lte("planned_date", until).order("event_id").range(a, b),
+    ),
+    db().from("routines").select("id, name, archived_at, exclude_from_analytics").order("created_at"),
+    db()
+      .from("routine_versions")
+      .select("id, routine_id, version_no, start_time, duration_min, weekdays, valid_from, valid_to, source")
+      .order("version_no"),
+  ]);
+  return {
+    facts: facts.map((f) => ({ ...f, delay_min: f.delay_min === null ? null : Number(f.delay_min) })),
+    events,
+    routines: unwrap<RoutineInfo[]>(routines),
+    versions: unwrap<VersionInfo[]>(versions),
+  };
+}
+
+/** 1つのルーティンの予定（分析用の行、版ごとの集計に使う） */
+export async function loadRoutineFacts(routineId: string, until: string): Promise<FactRow[]> {
+  const facts = await readAll<FactRow>((a, b) =>
+    db()
+      .from("occurrence_facts")
+      .select(FACT_COLS)
+      .eq("routine_id", routineId)
+      .lte("planned_date", until)
+      .order("planned_date")
+      .order("occurrence_id")
+      .range(a, b),
+  );
+  return facts.map((f) => ({ ...f, delay_min: f.delay_min === null ? null : Number(f.delay_min) }));
+}
+
+/** テスト用ルーティンを分析から外す・戻す（予定・実績・通知は変わらない） */
+export async function setRoutineAnalytics(id: string, exclude: boolean): Promise<void> {
+  unwrap(await db().rpc("set_routine_analytics", { p_routine_id: id, p_exclude: exclude }));
 }

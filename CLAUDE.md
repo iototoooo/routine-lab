@@ -79,7 +79,8 @@
 - DB / RLS：`tests/db/*.test.ts`。`tests/db/harness.ts` が PGlite に全マイグレーションを適用する（Supabase の既定の権限・auth・vault・net・cron は最小の代役）。時刻に依存する規則は内部の関数（`_record_done` など、`p_now` を受け取る）で確かめる。
 - ブラウザ：`tests/e2e/*.spec.ts`（Playwright、Pixel 7 / iPhone 14 の表示）。Supabase への通信は `tests/e2e/fake-supabase.ts` がすべて横取りする。
 - 本番 DB の確認は `supabase/tests/phase1_smoke.sql`（必ず例外で終わり、全体が取り消される。実行は承認後のみ）。
-- Phase 2 の本番 DB の確認は `supabase/tests/phase2_smoke.sql`（同じ方式。`claim_due_jobs` は呼ばない）。
-- 本番から取り消すときは `supabase/rollback/20261108_phase2_down.sql`（Phase 2 → 1）・`20261107_phase1_down.sql`（Phase 1 → 0）。承認後のみ。`tests/db/rollback.test.ts` で確認済み。
+- Phase 2 の本番 DB の確認は `supabase/tests/phase2_smoke.sql`（同じ方式。`claim_due_jobs` は呼ばない）。Phase 3 は `supabase/tests/phase3_smoke.sql`。
+- 本番から取り消すときは `supabase/rollback/20261109_phase3_down.sql`（Phase 3 → 2）・`20261108_phase2_down.sql`（Phase 2 → 1）・`20261107_phase1_down.sql`（Phase 1 → 0）。承認後のみ。`tests/db/rollback.test.ts` で確認済み。
 - 通知ジョブは予定の状態からトリガー（`occurrences_sync_jobs`）が作る・取り消す。予定を変える処理を足しても、ジョブを直接いじらない。send-push の本体は `_shared/dispatch.ts`（`tests/unit/dispatch.test.ts`）。
+- 分析（Phase 3）は `src/lib/analytics/` の純粋関数（`tests/unit/analytics.test.ts`）。達成率の分母は完了・見送り・未実施だけ（未確定は数えない）、0件は「データなし」、5件未満は参考値。テスト用ルーティン（`routines.exclude_from_analytics`）は分析だけから外し、予定・記録・通知には触れない。
 - iPhone 実機のテストは `docs/plan.md` 9章に従う。Android 実機はないため PC の Chrome / Edge で代替し、README に「Android 実機では未検証」と書く。

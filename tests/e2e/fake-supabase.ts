@@ -32,8 +32,8 @@ export class FakeSupabase {
   calls: Call[] = [];
   tables: Record<string, Row[]> = {
     routines: [
-      { id: IDS.routineStretch, user_id: USER_ID, name: "朝のストレッチ", note: null, archived_at: null, created_at: "2026-11-01T00:00:00Z" },
-      { id: IDS.routineReading, user_id: USER_ID, name: "夜の読書", note: "寝る前に", archived_at: null, created_at: "2026-11-01T00:01:00Z" },
+      { id: IDS.routineStretch, user_id: USER_ID, name: "朝のストレッチ", note: null, archived_at: null, created_at: "2026-11-01T00:00:00Z", exclude_from_analytics: false },
+      { id: IDS.routineReading, user_id: USER_ID, name: "夜の読書", note: "寝る前に", archived_at: null, created_at: "2026-11-01T00:01:00Z", exclude_from_analytics: false },
     ],
     routine_versions: [
       { id: IDS.v1Stretch, routine_id: IDS.routineStretch, version_no: 1, name: "朝のストレッチ", note: null, weekdays: [1, 2, 3, 4, 5, 6, 7], start_time: "07:00:00", duration_min: 15, snooze_min: 10, valid_from: "2026-11-01", valid_to: null, change_reason: null, source: "manual", created_at: "2026-11-01T00:00:00Z" },
@@ -53,6 +53,9 @@ export class FakeSupabase {
       { occurrence_id: IDS.occTonight, kind: "initial", fire_at: jstIso(TODAY, "21:00"), status: "pending", sent_at: null },
       { occurrence_id: IDS.occTomorrow, kind: "initial", fire_at: jstIso("2026-11-11", "07:00"), status: "pending", sent_at: null },
     ],
+    // Phase 3：分析用のビュー（テストごとに tests/e2e/phase3.spec.ts で入れる）
+    occurrence_facts: [],
+    occurrence_reason_facts: [],
   };
 
   occ(oid: string, rid: string, vid: string, date: string, time: string, dur: number): Row {
@@ -106,8 +109,10 @@ export class FakeSupabase {
   private select(table: string, params: URLSearchParams): Row[] {
     let rows = [...this.tables[table]!];
     let order: [string, boolean] | null = null;
+    const offset = Number(params.get("offset") ?? 0);
+    const limit = params.has("limit") ? Number(params.get("limit")) : Infinity;
     for (const [k, v] of params) {
-      if (k === "select") continue;
+      if (k === "select" || k === "offset" || k === "limit") continue;
       if (k === "order") {
         const [col, dir] = v.split(".");
         order = [col!, dir !== "desc"];
@@ -117,6 +122,7 @@ export class FakeSupabase {
       const arg = rest.join(".");
       if (op === "eq") rows = rows.filter((r) => String(r[k]) === arg);
       else if (op === "gte") rows = rows.filter((r) => String(r[k]) >= arg);
+      else if (op === "lte") rows = rows.filter((r) => String(r[k]) <= arg);
       else if (op === "in") {
         const set = new Set(arg.replace(/^\(|\)$/g, "").split(",").map((s) => s.replace(/^"|"$/g, "")));
         rows = rows.filter((r) => set.has(String(r[k])));
@@ -126,7 +132,7 @@ export class FakeSupabase {
       const [col, asc] = order;
       rows.sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
     }
-    return rows;
+    return rows.slice(offset, offset + limit);
   }
 
   private findOcc(oid: unknown): Row | undefined {
@@ -168,7 +174,7 @@ export class FakeSupabase {
       }
       case "create_routine": {
         const rid = id(500 + this.tables.routines!.length);
-        this.tables.routines!.push({ id: rid, user_id: USER_ID, name: b.p_name, note: b.p_note, archived_at: null, created_at: now });
+        this.tables.routines!.push({ id: rid, user_id: USER_ID, name: b.p_name, note: b.p_note, archived_at: null, created_at: now, exclude_from_analytics: false });
         this.tables.routine_versions!.push({
           id: id(600 + this.tables.routine_versions!.length), routine_id: rid, version_no: 1, name: b.p_name, note: b.p_note,
           weekdays: b.p_weekdays, start_time: `${b.p_start_time}:00`, duration_min: b.p_duration_min, snooze_min: b.p_snooze_min,
@@ -188,6 +194,12 @@ export class FakeSupabase {
         };
         this.tables.routine_versions!.push(nv);
         return { data: nv.id };
+      }
+      case "set_routine_analytics": {
+        const r = this.tables.routines!.find((x) => x.id === b.p_routine_id);
+        if (!r) return { error: "not_found" };
+        r.exclude_from_analytics = b.p_exclude;
+        return { data: b.p_exclude };
       }
       case "archive_routine": {
         const r = this.tables.routines!.find((x) => x.id === b.p_routine_id);

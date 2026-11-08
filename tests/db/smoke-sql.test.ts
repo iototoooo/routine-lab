@@ -49,3 +49,25 @@ test("Phase 2 のスモークテストは SMOKE_OK の例外で終わり、デ�
   expect(await snapshot()).toBe(before);
   expect(await errorOf(db.exec(sql))).toMatch(/^SMOKE_OK/);
 });
+
+test("Phase 3 のスモークテストは SMOKE_OK の例外で終わり、データを残さない（既存ユーザーの行も変えない）", async () => {
+  const db = await createTestDb();
+  await db.query("insert into auth.users (id, email) values ('00000000-0000-4000-8000-0000000000e2', 'real@example.test')");
+  await db.query(
+    "select public._create_routine('00000000-0000-4000-8000-0000000000e2', now(), '本物', null, '{1,2,3,4,5,6,7}', '23:55', 15, 10)",
+  );
+  const snapshot = async () =>
+    (
+      await db.query<{ v: string }>(
+        `select concat_ws('|', (select count(*) from auth.users), (select md5(string_agg(r::text, ',' order by r.id)) from public.routines r),
+           (select count(*) from public.routine_versions), (select count(*) from public.occurrences),
+           (select count(*) from public.occurrence_events), (select count(*) from public.profiles),
+           (select md5(coalesce(string_agg(j::text, ',' order by j.id), '')) from public.notification_jobs j)) as v`,
+      )
+    ).rows[0]!.v;
+  const before = await snapshot();
+  const sql = readFileSync(join(process.cwd(), "supabase", "tests", "phase3_smoke.sql"), "utf8");
+  expect(await errorOf(db.exec(sql))).toMatch(/^SMOKE_OK checks=12 \(rolled back\)$/);
+  expect(await snapshot()).toBe(before);
+  expect(await errorOf(db.exec(sql))).toMatch(/^SMOKE_OK/);
+});
