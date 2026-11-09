@@ -58,6 +58,121 @@ async function seedPhase0(db: PGlite) {
   );
 }
 
+describe("Phase 4 の取り消し SQL（判断記録・提案から作った版があれば止まる）", () => {
+  const files = migrationFiles();
+  const upToPhase3 = files.filter((f) => f < "20261110");
+  const phase4 = files.filter((f) => f.startsWith("20261110"));
+  const u = "00000000-0000-4000-8000-0000000000a1";
+  const R01 = JSON.stringify({ weekdays: [1, 2, 3, 4, 5, 6, 7], start_time: "07:30", duration_min: 15 });
+  const R03 = JSON.stringify({ weekdays: [1, 2, 3, 4, 5, 6, 7], start_time: "07:00", duration_min: 30 });
+  const ROWS = `
+    (select string_agg(r::text, ',' order by r.id) from public.routines r),
+    (select string_agg(v::text, ',' order by v.id) from public.routine_versions v),
+    (select string_agg(o::text, ',' order by o.id) from public.occurrences o),
+    (select string_agg(e::text, ',' order by e.id) from public.executions e),
+    (select string_agg(e::text, ',' order by e.id) from public.occurrence_events e),
+    (select string_agg(j::text, ',' order by j.id) from public.notification_jobs j),
+    (select string_agg(s::text, ',' order by s.id) from public.push_subscriptions s)`;
+
+  /** Phase 3 まで反映 → 既存の記録（予定・延期・通知ジョブ・端末）→ Phase 4 を反映した DB */
+  async function setup() {
+    expect(phase4).toHaveLength(1);
+    const db = await PGlite.create({ extensions: { btree_gist } });
+    await db.exec(SUPABASE_STUB);
+    await apply(db, upToPhase3);
+    await seedPhase0(db);
+    const r = await db.query<{ id: string }>(
+      "select public._create_routine($1, '2026-11-10 06:00+09', 'x', null, '{1,2,3,4,5,6,7}', '07:00', 15, 10) as id",
+      [u],
+    );
+    const rid = r.rows[0]!.id;
+    const occ = await db.query<{ id: string }>("select id from public.occurrences where routine_id = $1 order by planned_date limit 1", [rid]);
+    await db.query("select public._postpone($1, '2026-11-10 06:00+09', $2, '10m', null, 'tired', null)", [u, occ.rows[0]!.id]);
+    await apply(db, phase4);
+    const v1 = (await db.query<{ id: string }>("select id from public.routine_versions where routine_id = $1", [rid])).rows[0]!.id;
+    return { db, rid, v1 };
+  }
+  /** 既存の表の行の指紋（判断記録の表は別に数える） */
+  async function rowsOf(db: PGlite) {
+    return (await db.query<{ v: string }>(`select md5(concat_ws('|', ${ROWS})) as v`)).rows[0]!.v;
+  }
+  /** 構造（表・関数・制約・ポリシー・トリガー・cron・マイグレーション）と、すべての行（判断記録を含む） */
+  async function state(db: PGlite) {
+    const s = await db.query<{ v: string }>("select coalesce(string_agg(x::text, ',' order by x.id), 'empty') as v from public.suggestions x");
+    return { structure: await fingerprint(db), rows: await rowsOf(db), suggestions: s.rows[0]!.v };
+  }
+  /** 取り消し SQL を実行する。止まったら、失敗したトランザクションを閉じる（本番では接続を閉じるのと同じ） */
+  async function runRollback(db: PGlite): Promise<string | null> {
+    try {
+      await db.exec(read("rollback/20261110_phase4_down.sql"));
+      return null;
+    } catch (e) {
+      await db.exec("rollback");
+      return e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  it("A. 提案を承認した後は止まって理由を示し、判断記録・提案から作った版・DB の構造と行は1つも変わらない", async () => {
+    const { db, rid, v1 } = await setup();
+    await db.query("select public._accept_suggestion($1, '2026-11-10 06:00+09', $2, 'R-01', $3, '{}'::jsonb, $4::jsonb, '2026-11-11', null)", [u, rid, v1, R01]);
+    const before = await state(db);
+    expect(await runRollback(db)).toBe(
+      "PHASE4_ROLLBACK_REFUSED: 改善提案の判断記録 1 件・提案から作った版 1 件があるため、取り消しを中止しました（何も変更していません）",
+    );
+    expect(await state(db)).toEqual(before);
+    const vs = await db.query<{ source: string }>("select source from public.routine_versions where routine_id = $1 order by version_no", [rid]);
+    expect(vs.rows.map((x) => x.source)).toEqual(["manual", "suggestion"]);
+    expect((await db.query<{ status: string }>("select status from public.suggestions")).rows).toEqual([{ status: "accepted" }]);
+  });
+
+  it("B. 提案を却下した後も止まり、却下記録・DB の構造と行は変わらない", async () => {
+    const { db, rid, v1 } = await setup();
+    await db.query("select public._reject_suggestion($1, '2026-11-10 06:00+09', $2, 'R-03', $3, '{}'::jsonb, $4::jsonb)", [u, rid, v1, R03]);
+    const before = await state(db);
+    expect(await runRollback(db)).toMatch(/^PHASE4_ROLLBACK_REFUSED: 改善提案の判断記録 1 件・提案から作った版 0 件があるため/);
+    expect(await state(db)).toEqual(before);
+    expect((await db.query<{ status: string }>("select status from public.suggestions")).rows).toEqual([{ status: "rejected" }]);
+  });
+
+  it("C. 判断記録・提案から作った版が 0 件なら Phase 3 の構造に完全に戻り、既存の行は変わらず、Phase 4 を再適用できる", async () => {
+    const base = await PGlite.create({ extensions: { btree_gist } });
+    await base.exec(SUPABASE_STUB);
+    await apply(base, upToPhase3);
+    const expected = await fingerprint(base);
+
+    const { db, rid } = await setup();
+    // 手動の編集（Phase 4 では _apply_routine_version を経由）をしてあっても、提案由来ではないので戻せる
+    await db.query("select public._edit_routine($1, '2026-11-10 06:30+09', $2, 'x', null, '{1,2,3}', '08:00', 15, 10, '2026-11-12', null)", [u, rid]);
+    const before = await rowsOf(db);
+    expect((await fingerprint(db)).length).toBeGreaterThan(expected.length);
+
+    expect(await runRollback(db)).toBeNull();
+    expect(await fingerprint(db)).toEqual(expected);
+    expect(await rowsOf(db)).toBe(before);
+    // Phase 3 の定義の手動編集が今までどおり動く
+    await db.query("select public._edit_routine($1, '2026-11-10 06:40+09', $2, 'x', null, '{1,2}', '08:00', 15, 10, '2026-11-13', null)", [u, rid]);
+
+    // 再適用でき、承認も動く
+    await apply(db, phase4);
+    const cur = (await db.query<{ id: string }>("select id from public.routine_versions where routine_id = $1 and valid_to is null", [rid])).rows[0]!.id;
+    await db.query("select public._accept_suggestion($1, '2026-11-10 07:00+09', $2, 'R-03', $3, '{}'::jsonb, $4::jsonb, '2026-11-14', null)", [
+      u, rid, cur, JSON.stringify({ weekdays: [1, 2], start_time: "08:00", duration_min: 30 }),
+    ]);
+    expect((await db.query("select 1 from public.routine_versions where source = 'suggestion'")).rows).toHaveLength(1);
+  });
+
+  it("D. 判断記録が 0 件でも提案から作った版がある異常な状態なら止まり、履歴は変わらない", async () => {
+    const { db, rid, v1 } = await setup();
+    await db.query("select public._accept_suggestion($1, '2026-11-10 06:00+09', $2, 'R-01', $3, '{}'::jsonb, $4::jsonb, '2026-11-11', null)", [u, rid, v1, R01]);
+    // 異常な状態を作る：トリガー（変更禁止・外部キー）を止めて判断記録だけを消す（ふだんは消せない）
+    await db.exec("set session_replication_role = replica; delete from public.suggestions; set session_replication_role = default;");
+    const before = await state(db);
+    expect(before.suggestions).toBe("empty");
+    expect(await runRollback(db)).toMatch(/^PHASE4_ROLLBACK_REFUSED: 改善提案の判断記録 0 件・提案から作った版 1 件があるため/);
+    expect(await state(db)).toEqual(before);
+  });
+});
+
 describe("Phase 3 の取り消し SQL", () => {
   it("反映 → 印の切り替え → 取り消しで Phase 2 だけの状態に戻り、予定・実績・イベント・通知ジョブは変わらない", async () => {
     const files = migrationFiles();

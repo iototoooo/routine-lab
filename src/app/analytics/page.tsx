@@ -7,7 +7,8 @@ import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
 import { CountBars, RateBars, RateColumns, type CountItem, type RateItem } from "@/components/charts";
 import { ErrorBox, Loading, Section, card, inputBase } from "@/components/ui";
-import { loadAnalyticsData, type AnalyticsData } from "@/lib/data/api";
+import { listDecisions, loadAnalyticsData, type AnalyticsData } from "@/lib/data/api";
+import { generateSuggestions, type Decision } from "@/lib/suggestions/rules";
 import { errorMessage } from "@/lib/data/errors";
 import type { Bucket, Segment } from "@/lib/analytics/achievement";
 import { POSTPONE_COUNT_KEYS, REASON_KEYS, type ReasonKey } from "@/lib/analytics/reasons";
@@ -48,13 +49,25 @@ function AnalyticsBody() {
   const router = useRouter();
   const today = jstDate(new Date());
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [decisions, setDecisions] = useState<Decision[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadAnalyticsData(today)
       .then(setData)
       .catch((e) => setError(errorMessage(e)));
+    // 改善提案の件数（読めなくても分析は表示する）
+    listDecisions()
+      .then(setDecisions)
+      .catch(() => setDecisions(null));
   }, [today]);
+  const suggestionCount = useMemo(
+    () =>
+      data && decisions
+        ? generateSuggestions({ facts: data.facts, routines: data.routines, versions: data.versions, decisions, today }).suggestions.length
+        : null,
+    [data, decisions, today],
+  );
 
   const period: PeriodKey = isPeriod(params.get("p")) ? (params.get("p") as PeriodKey) : "4w";
   const customFrom = params.get("from") ?? "";
@@ -88,6 +101,15 @@ function AnalyticsBody() {
 
   return (
     <div className="space-y-6">
+      <Link href="/suggestions/" className={`${card} flex min-h-11 items-center justify-between gap-2 text-sm`}>
+        <span>
+          <span className="font-bold">改善提案</span>
+          {suggestionCount === null ? "" : suggestionCount > 0 ? `：${suggestionCount} 件あります` : "：今はありません"}
+        </span>
+        <span aria-hidden="true" className="text-accent">
+          ›
+        </span>
+      </Link>
       <Filters
         data={data}
         period={period}

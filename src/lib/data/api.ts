@@ -17,6 +17,8 @@ import type { ReasonCode } from "@/lib/domain/reasons";
 import type { StartSource } from "@/lib/domain/record";
 import type { NotificationJobView } from "@/lib/domain/notify";
 import type { FactRow, ReasonEventRow, RoutineInfo, VersionInfo } from "@/lib/analytics/types";
+import type { Decision, Suggestion } from "@/lib/suggestions/rules";
+import type { ExportData } from "@/lib/export/export";
 
 const OCC_COLS =
   "id, routine_id, routine_version_id, planned_date, planned_start_at, planned_duration_min, status, next_remind_at, postpone_count, closed_at";
@@ -259,4 +261,75 @@ export async function loadRoutineFacts(routineId: string, until: string): Promis
 /** テスト用ルーティンを分析から外す・戻す（予定・実績・通知は変わらない） */
 export async function setRoutineAnalytics(id: string, exclude: boolean): Promise<void> {
   unwrap(await db().rpc("set_routine_analytics", { p_routine_id: id, p_exclude: exclude }));
+}
+
+// ---------------------------------------------------------------------
+// Phase 4：改善提案の判断・書き出し（docs/phase4-plan.md 3・5章）
+// ---------------------------------------------------------------------
+
+const DECISION_COLS =
+  "id, routine_id, rule_id, base_version_id, status, decided_at, applied_version_id, evidence, current_settings, proposed";
+
+/** 改善提案の判断の記録（承認・却下。新しい順） */
+export async function listDecisions(routineId?: string): Promise<Decision[]> {
+  let q = db().from("suggestions").select(DECISION_COLS);
+  if (routineId) q = q.eq("routine_id", routineId);
+  return unwrap<Decision[]>(await q.order("decided_at", { ascending: false }));
+}
+
+/** 提案を承認して新しい版を作る（作った版の ID）。もとにした版が今の版でなければ stale_suggestion */
+export async function acceptSuggestion(s: Suggestion, validFrom: string, reason: string): Promise<string> {
+  return unwrap<string>(
+    await db().rpc("accept_suggestion", {
+      p_routine_id: s.routineId,
+      p_rule_id: s.ruleId,
+      p_base_version_id: s.baseVersionId,
+      p_evidence: s.evidence,
+      p_proposed: s.proposed,
+      p_valid_from: validFrom,
+      p_change_reason: reason.trim() || null,
+    }),
+  );
+}
+
+/** 提案を却下する（判断だけを記録。版・予定・通知は変わらない） */
+export async function rejectSuggestion(s: Suggestion): Promise<void> {
+  unwrap(
+    await db().rpc("reject_suggestion", {
+      p_routine_id: s.routineId,
+      p_rule_id: s.ruleId,
+      p_base_version_id: s.baseVersionId,
+      p_evidence: s.evidence,
+      p_proposed: s.proposed,
+    }),
+  );
+}
+
+/** 書き出し用に、本人の記録をすべて読む（端末の情報・テスト通知・送信結果の詳細は読まない） */
+export async function loadExportData(): Promise<ExportData> {
+  type Page = PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>;
+  const all = (table: string, cols: string, order: string) =>
+    readAll<Record<string, unknown>>((a, b) => db().from(table).select(cols).order(order).range(a, b) as unknown as Page);
+  const [profiles, routines, routine_versions, occurrences, executions, occurrence_events, suggestions, notification_jobs] = await Promise.all([
+    all("profiles", "timezone, default_snooze_min, quiet_hours, created_at, updated_at", "created_at"),
+    all("routines", ROUTINE_COLS, "id"),
+    all("routine_versions", `${VERSION_COLS}, suggestion_id`, "id"),
+    all("occurrences", `${OCC_COLS}, created_at, updated_at`, "id"),
+    all("executions", EXEC_COLS, "id"),
+    all(
+      "occurrence_events",
+      "id, occurrence_id, type, from_status, to_status, remind_at, postpone_option, reason_code, reason_text, execution_id, actor, detail, created_at",
+      "id",
+    ),
+    all("suggestions", `${DECISION_COLS}, created_at`, "id"),
+    readAll<Record<string, unknown>>((a, b) =>
+      db()
+        .from("notification_jobs")
+        .select("id, occurrence_id, kind, fire_at, expires_at, status, attempts, sent_at, cancel_reason, cancelled_at, created_at")
+        .neq("kind", "test")
+        .order("id")
+        .range(a, b) as unknown as Page,
+    ),
+  ]);
+  return { profiles, routines, routine_versions, occurrences, executions, occurrence_events, suggestions, notification_jobs };
 }

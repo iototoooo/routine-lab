@@ -7,7 +7,9 @@ import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
 import { delayLabel } from "@/components/OccurrenceCard";
 import { ErrorBox, Loading, Section, StatusBadge, btnSecondary, card } from "@/components/ui";
-import { getRoutine, listRoutineOccurrences, loadRoutineFacts, setRoutineAnalytics, type RoutineWithVersions } from "@/lib/data/api";
+import { getRoutine, listDecisions, listRoutineOccurrences, loadRoutineFacts, setRoutineAnalytics, type RoutineWithVersions } from "@/lib/data/api";
+import { ruleTitle } from "@/components/suggestions";
+import type { Decision } from "@/lib/suggestions/rules";
 import type { FactRow } from "@/lib/analytics/types";
 import { formatMinutes, formatRate, type Rate, type Sample } from "@/lib/analytics/stats";
 import { compareWithPrevious, versionStats, type ComparedWindow } from "@/lib/analytics/versions";
@@ -19,6 +21,7 @@ import { addDays, formatDateShort, jstDate, jstTime } from "@/lib/time/jst";
 
 // S-06 ルーティン詳細（F-105）：版の履歴（設定・有効期間・変更理由・きっかけ）と、直近4週の予定と実績。
 // Phase 3：版ごとの集計と直前の版との比較（期間と件数を明示）、「分析に含めない（テスト用）」の切り替え
+// Phase 4：版の比較画面・改善提案への入口、提案から作った版のきっかけ（ルール）と「この変更を取り消す」
 
 export default function RoutineDetailPage() {
   return (
@@ -35,7 +38,10 @@ export default function RoutineDetailPage() {
 }
 
 function DetailBody() {
-  const id = useSearchParams().get("id") ?? "";
+  const params = useSearchParams();
+  const id = params.get("id") ?? "";
+  const accepted = params.get("accepted") === "1";
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const [routine, setRoutine] = useState<RoutineWithVersions | null | undefined>(undefined);
   const [occ, setOcc] = useState<OccurrenceView[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
@@ -44,11 +50,12 @@ function DetailBody() {
   useEffect(() => {
     const today = jstDate(new Date());
     const from = addDays(today, -27);
-    Promise.all([getRoutine(id), listRoutineOccurrences(id, from), loadRoutineFacts(id, today)])
-      .then(([r, o, f]) => {
+    Promise.all([getRoutine(id), listRoutineOccurrences(id, from), loadRoutineFacts(id, today), listDecisions(id)])
+      .then(([r, o, f, d]) => {
         setRoutine(r);
         setOcc(o);
         setFacts(f);
+        setDecisions(d);
       })
       .catch((e) => {
         setError(errorMessage(e));
@@ -78,8 +85,16 @@ function DetailBody() {
     }
   };
 
+  const decisionOf = (versionId: string) => decisions.find((d) => d.applied_version_id === versionId);
+  const comparable = routine.versions.filter((v) => !neverEffective(v) && v.valid_from <= today).length >= 2;
+
   return (
     <div className="space-y-6">
+      {accepted && latest && (
+        <p className={`${card} text-sm`} role="status">
+          提案を承認し、第{latest.version_no}版を作りました（{formatDateShort(latest.valid_from)} から）。元に戻したいときは「設定の履歴」から取り消せます。
+        </p>
+      )}
       <div className={card}>
         <p className="break-words text-lg font-bold">{routine.name}</p>
         {cur && (
@@ -104,6 +119,20 @@ function DetailBody() {
           <Link href={`/analytics/?r=${routine.id}&p=12w`} className={btnSecondary}>
             このルーティンを分析で見る
           </Link>
+          <div className="grid grid-cols-2 gap-2">
+            {comparable ? (
+              <Link href={`/routines/compare/?id=${routine.id}`} className={btnSecondary}>
+                版を選んで比べる
+              </Link>
+            ) : (
+              <span className={`${btnSecondary} opacity-60`} aria-disabled="true">
+                版の比較（版が1つだけ）
+              </span>
+            )}
+            <Link href="/suggestions/" className={btnSecondary}>
+              改善提案を見る
+            </Link>
+          </div>
           <div>
             <p>
               分析での扱い：
@@ -190,8 +219,15 @@ function DetailBody() {
               </p>
               <p className="text-muted">
                 {v.version_no === 1 ? "登録" : `変更理由：${v.change_reason ?? "（なし）"}`}・きっかけ：
-                {v.source === "suggestion" ? "改善提案" : "手動"}
+                {v.source === "suggestion"
+                  ? `改善提案${decisionOf(v.id) ? `（${decisionOf(v.id)!.rule_id}「${ruleTitle(decisionOf(v.id)!.rule_id)}」）` : ""}`
+                  : "手動"}
               </p>
+              {v.source === "suggestion" && latest && v.id === latest.id && !routine.archived_at && (
+                <Link href={`/routines/edit/?id=${routine.id}&revert=${v.id}`} className={`${btnSecondary} mt-2`}>
+                  この変更を取り消す（元の設定に戻す）
+                </Link>
+              )}
             </li>
           ))}
         </ol>

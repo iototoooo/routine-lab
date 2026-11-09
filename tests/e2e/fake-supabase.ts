@@ -56,6 +56,9 @@ export class FakeSupabase {
     // Phase 3：分析用のビュー（テストごとに tests/e2e/phase3.spec.ts で入れる）
     occurrence_facts: [],
     occurrence_reason_facts: [],
+    // Phase 4：改善提案の判断の記録と、書き出し用のプロフィール
+    suggestions: [],
+    profiles: [{ user_id: USER_ID, timezone: "Asia/Tokyo", default_snooze_min: 10, quiet_hours: null, created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-01T00:00:00Z" }],
   };
 
   occ(oid: string, rid: string, vid: string, date: string, time: string, dur: number): Row {
@@ -121,6 +124,7 @@ export class FakeSupabase {
       const [op, ...rest] = v.split(".");
       const arg = rest.join(".");
       if (op === "eq") rows = rows.filter((r) => String(r[k]) === arg);
+      else if (op === "neq") rows = rows.filter((r) => String(r[k]) !== arg);
       else if (op === "gte") rows = rows.filter((r) => String(r[k]) >= arg);
       else if (op === "lte") rows = rows.filter((r) => String(r[k]) <= arg);
       else if (op === "in") {
@@ -200,6 +204,34 @@ export class FakeSupabase {
         if (!r) return { error: "not_found" };
         r.exclude_from_analytics = b.p_exclude;
         return { data: b.p_exclude };
+      }
+      case "accept_suggestion":
+      case "reject_suggestion": {
+        // 本物の規則（古い提案・28 日・ルールごとの項目）は tests/db で確かめる。ここは画面の流れの確認用
+        const vs = this.tables.routine_versions!.filter((v) => v.routine_id === b.p_routine_id);
+        const cur = vs.find((v) => v.valid_to === null);
+        if (!cur) return { error: "not_found" };
+        if (cur.id !== b.p_base_version_id) return { error: "stale_suggestion" };
+        if (this.tables.suggestions!.some((x) => x.base_version_id === cur.id && x.rule_id === b.p_rule_id)) return { error: "recently_decided" };
+        const sid = id(800 + this.tables.suggestions!.length);
+        const p = b.p_proposed as { weekdays: number[]; start_time: string; duration_min: number };
+        const current = { weekdays: cur.weekdays, start_time: String(cur.start_time).slice(0, 5), duration_min: cur.duration_min };
+        let applied: string | null = null;
+        if (fn === "accept_suggestion") {
+          cur.valid_to = b.p_valid_from;
+          applied = id(700 + vs.length);
+          this.tables.routine_versions!.push({
+            ...cur, id: applied, version_no: Number(cur.version_no) + 1, weekdays: p.weekdays, start_time: `${p.start_time}:00`,
+            duration_min: p.duration_min, valid_from: b.p_valid_from, valid_to: null, change_reason: b.p_change_reason,
+            source: "suggestion", suggestion_id: sid, created_at: now,
+          });
+        }
+        this.tables.suggestions!.push({
+          id: sid, user_id: USER_ID, routine_id: b.p_routine_id, rule_id: b.p_rule_id, base_version_id: cur.id,
+          status: fn === "accept_suggestion" ? "accepted" : "rejected", decided_at: now, applied_version_id: applied,
+          evidence: b.p_evidence, current_settings: current, proposed: p, created_at: now,
+        });
+        return { data: applied ?? sid };
       }
       case "archive_routine": {
         const r = this.tables.routines!.find((x) => x.id === b.p_routine_id);

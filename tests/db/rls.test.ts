@@ -16,6 +16,7 @@ const CLIENT_RPCS = [
   "ensure_occurrences", "create_routine", "edit_routine", "archive_routine",
   "record_done", "postpone", "skip_occurrence",
   "set_routine_analytics", // Phase 3
+  "accept_suggestion", "reject_suggestion", // Phase 4
 ];
 // 分析用のビュー（security_invoker。元の表の RLS が効く）
 const VIEWS = ["occurrence_facts", "occurrence_reason_facts"];

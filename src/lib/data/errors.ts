@@ -14,6 +14,10 @@ const MESSAGES: Record<string, string> = {
   invalid_start: "開始時刻は、予定日の0:00から今までの間にしてください。",
   invalid_remind_at: "再通知の時刻は、今より後で、予定日の翌日の終わりより前にしてください。",
   reason_required: "見送りの理由を選んでください。",
+  // Phase 4：改善提案（20261110000000_phase4_suggestions.sql）
+  stale_suggestion: "この提案のもとにした設定が変わっています。提案の一覧を開き直してください。",
+  recently_decided: "この提案はすでに判断済みです（同じルーティン・同じ提案は、判断から28日間は出しません）。",
+  routine_excluded: "テスト用のルーティンには改善提案を出しません。",
 };
 
 export function errorCode(error: unknown): string | null {

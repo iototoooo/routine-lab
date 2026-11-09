@@ -1,4 +1,4 @@
-# Phase 3 実装計画（分析）— 2026-11-08 承認・ローカル実装済み
+# Phase 3 実装計画（分析）— 2026-11-08 承認・2026-11-09 完了
 
 `docs/requirements.md`（変更しない）と `docs/plan.md`（第2版）の Phase 3 を、実装できる粒度に具体化したもの。
 Phase 1（予定・記録・分析用ビュー `occurrence_facts`）と Phase 2（通知）の実績を前提にする。
@@ -164,3 +164,13 @@ Phase 1（予定・記録・分析用ビュー `occurrence_facts`）と Phase 2�
 - 事前：接続先 routine-lab（production）、実行するのは `supabase/tests/phase3_smoke.sql` だけ（md5 3a767c8a…、直前に手元の DB で再テストして成功）。DO ブロック1つ（18〜153行目）で最後に必ず例外。既存の行の UPDATE / DELETE なし、送信系の関数・メール送信なし。
 - 実行：`npx supabase db query --remote=vmlxzeraeimxgkjxivnl -f supabase/tests/phase3_smoke.sql --yes` → `SMOKE_OK checks=12 (rolled back)`（最後の RAISE による意図どおりのエラー終了。ほかのエラーなし）。
 - 実行後（読み取りのみ）：テスト用ユーザー 0・`smoke3-` のルーティン 0。ユーザー・プロフィール・ルーティン（分析の印 5 件とも false のまま）・版・予定・実績・イベント・通知ジョブ・送信記録・端末・テスト送信の記録の指紋が実行前と同じ。cron・Vault・RLS のポリシー・関数・表とビューの権限・マイグレーション（11 本）も同じ。pg_net の送信待ち 0・応答 2 件のまま（テスト由来の送信なし）。実行中も毎分の cron は成功。Secrets は名前・更新日時とも変化なし。
+
+## 13. 公開（2026-11-08、承認済み・第3段階）
+- commit `7d9ccfc`（32 ファイル）を GitHub に push。CI（GitHub Actions）成功。Cloudflare Pages は push から約1分で自動デプロイが始まり、成功（`https://9854d6a7.routine-lab.pages.dev`、本番 https://routine-lab.pages.dev/）。
+- 公開後：本番の 8 画面（`/analytics/` を含む）・`sw.js`・manifest がすべて 200。`sw.js` と manifest のハッシュは公開前と同じ。本番の JavaScript に分析画面・「分析に含めない」の切り替えが入り、既存の機能（通知の状態・完了の記録・テスト通知）も残っていることを確認。
+
+## 14. iPhone 実機テストと完了（2026-11-09）
+- 実機テスト 9 項目（分析タブ、テスト用ルーティンの除外、除外件数の表示、達成率・件数・参考値、期間とルーティンの絞り込み、テスト用を含める切り替え、「実測・時刻指定だけ」、表と版ごとの集計、既存の画面と記録）がすべて成功。詳細と DB の照合は `docs/test-report.md` の「Phase 3」。
+- 本番 DB（読み取りのみ、08:48 JST）：分析の印は「test」「テスト」の 2 件だけ true。切り替えの時刻に予定・実績・版・イベント・通知ジョブの変化なし。cron・Vault・RLS・関数・権限の指紋は前回と同じ。ただし、切り替え直前の全体の指紋は取っていないため、行ごとの完全な照合ではない。
+- **判定：Phase 3 完了**（完成条件 6）。
+- 残る未検証：記録が多いときの見え方、比較の数値の実機確認、Android 実機・PC での表示（`docs/test-report.md`）。Phase 2 の未検証の項目もそのまま残る。

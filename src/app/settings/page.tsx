@@ -13,8 +13,13 @@ import {
   requestTestPush,
 } from "@/lib/push/client";
 import { describeDevice, pushReadiness, type PushEnvironment } from "@/lib/push/platform";
+import { loadAnalyticsData, loadExportData } from "@/lib/data/api";
+import { errorMessage } from "@/lib/data/errors";
+import { buildJson, exportFileName, factsCsv } from "@/lib/export/export";
+import { saveFile } from "@/lib/export/save";
+import { jstDate } from "@/lib/time/jst";
 
-// S-10 設定（Phase 0：通知の許可・端末の一覧・テスト送信・ログアウト）
+// S-10 設定（Phase 0：通知の許可・端末の一覧・テスト送信・ログアウト。Phase 4：データの書き出し）
 
 type Device = {
   id: string;
@@ -182,6 +187,8 @@ function SettingsBody() {
         )}
       </section>
 
+      <ExportSection />
+
       <section className="rounded-lg border border-border bg-surface p-4">
         <button
           className={secondary}
@@ -195,6 +202,48 @@ function SettingsBody() {
         </button>
       </section>
     </div>
+  );
+}
+
+/** データの書き出し（F-801、Phase 4）。ファイルはこの端末の中で作り、サーバーには送らない */
+function ExportSection() {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const run = async (kind: "json" | "csv") => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const now = new Date();
+      let text: string;
+      if (kind === "json") {
+        text = buildJson(await loadExportData(), now);
+      } else {
+        const data = await loadAnalyticsData(jstDate(now));
+        text = factsCsv(data.facts, new Map(data.routines.map((r) => [r.id, r.name])));
+      }
+      const result = await saveFile(text, exportFileName(now, kind), kind === "json" ? "application/json" : "text/csv");
+      setMessage(result === "shared" ? "共有シートから保存できます。" : result === "cancelled" ? "保存をやめました。" : "ファイルを書き出しました。");
+    } catch (e) {
+      setMessage(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="space-y-2 rounded-lg border border-border bg-surface p-4">
+      <h2 className="font-bold">データの書き出し</h2>
+      <button className={secondary} disabled={busy} onClick={() => run("json")}>
+        すべての記録を書き出す（JSON）
+      </button>
+      <button className={secondary} disabled={busy} onClick={() => run("csv")}>
+        予定と実績を書き出す（CSV）
+      </button>
+      <p className="text-xs text-muted">
+        書き出すのは、ログイン中のあなたの記録だけです（ルーティン・設定の履歴・予定・実績・延期や見送りの記録・改善提案の判断・通知の予定）。
+        ログイン情報、通知先の端末の情報、テスト通知の記録は含めません。ファイルはこの端末の中で作り、どこにも送りません。
+      </p>
+      {message && <p className="text-sm" role="status">{message}</p>}
+    </section>
   );
 }
 

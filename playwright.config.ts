@@ -17,6 +17,8 @@ export default defineConfig({
   projects: [
     { name: "chromium-mobile", use: { ...devices["Pixel 7"] } },
     { name: "webkit-iphone", use: { ...devices["iPhone 14"] } },
+    // PC の画面幅（Phase 4 の画面だけ。既存の画面はスマートフォンの 2 種類で確認している）
+    { name: "chromium-desktop", use: { ...devices["Desktop Chrome"] }, testMatch: /phase4\.spec\.ts/ },
   ],
   webServer: {
     command: "node scripts/serve-out.mjs",

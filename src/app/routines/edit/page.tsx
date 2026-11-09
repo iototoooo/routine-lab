@@ -6,7 +6,8 @@ import { AppShell } from "@/components/AppShell";
 import { AuthGate } from "@/components/AuthGate";
 import { RoutineForm } from "@/components/RoutineForm";
 import { ErrorBox, Loading, btnDanger, btnPrimary, btnSecondary, card, inputBase } from "@/components/ui";
-import { archiveRoutine, createRoutine, editRoutine, getRoutine, type RoutineWithVersions } from "@/lib/data/api";
+import { archiveRoutine, createRoutine, editRoutine, getRoutine, listDecisions, type RoutineWithVersions } from "@/lib/data/api";
+import { revertReason } from "@/lib/suggestions/rules";
 import { errorMessage } from "@/lib/data/errors";
 import {
   REASON_MAX,
@@ -16,11 +17,13 @@ import {
   validateValidFrom,
   type RoutineSettings,
 } from "@/lib/domain/routine";
-import { latestVersion, toSettings } from "@/lib/domain/versions";
+import { hhmm, latestVersion, toSettings } from "@/lib/domain/versions";
 import { formatDateShort, isoWeekday, jstDate, jstDateTimeToInstant } from "@/lib/time/jst";
 
 // S-05 ルーティン編集（F-101〜103）。新規は id なし、編集は ?id=<ID>。
 // 編集は新しい版を追加する：適用開始日（既定は今日）と変更理由を入れ、変更前と変更後を確認してから保存する。
+// ?revert=<版ID>：改善提案で作った版を取り消す（Phase 4）。提案の前の版の設定を入れた状態で開き、ふだんの編集として保存する
+//   （版は削除せず、元の設定で新しい版を作る。きっかけは「手動」）。
 
 export default function RoutineEditPage() {
   return (
@@ -39,21 +42,27 @@ export default function RoutineEditPage() {
 const EMPTY: RoutineSettings = { name: "", note: "", weekdays: [1, 2, 3, 4, 5], startTime: "07:00", durationMin: 15, snoozeMin: 10 };
 
 function EditBody() {
-  const id = useSearchParams().get("id");
+  const params = useSearchParams();
+  const id = params.get("id");
+  const revertId = params.get("revert");
   const [routine, setRoutine] = useState<RoutineWithVersions | null | undefined>(id ? undefined : null);
+  const [revertRule, setRevertRule] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!id) return;
-    getRoutine(id)
-      .then((r) => setRoutine(r))
+    Promise.all([getRoutine(id), revertId ? listDecisions(id) : Promise.resolve([])])
+      .then(([r, ds]) => {
+        setRevertRule(ds.find((d) => d.applied_version_id === revertId)?.rule_id ?? null);
+        setRoutine(r);
+      })
       .catch((e) => {
         setError(errorMessage(e));
         setRoutine(null);
       });
-  }, [id]);
+  }, [id, revertId]);
   if (routine === undefined) return <Loading />;
   if (id && !routine) return <ErrorBox message={error ?? "ルーティンが見つかりませんでした。"} />;
-  return routine ? <EditForm routine={routine} /> : <CreateForm />;
+  return routine ? <EditForm routine={routine} revertId={revertId} revertRule={revertRule} /> : <CreateForm />;
 }
 
 /** 今日の予定が作られない場合の案内（判断事項1：開始時刻を過ぎてから登録・編集した日は作らない） */
@@ -100,14 +109,22 @@ function CreateForm() {
   );
 }
 
-function EditForm({ routine }: { routine: RoutineWithVersions }) {
+function EditForm({ routine, revertId, revertRule }: { routine: RoutineWithVersions; revertId: string | null; revertRule: string | null }) {
   const router = useRouter();
   const today = jstDate(new Date());
   const latest = latestVersion(routine.versions)!;
   const before = toSettings(latest);
-  const [value, setValue] = useState<RoutineSettings>(before);
+  // 取り消し：今の版が提案から作った版なら、その前の版の曜日・開始時刻・所要時間に戻す（名前・メモ・再通知は今のまま）
+  const reverting = revertId !== null && revertId === latest.id && latest.source === "suggestion";
+  const prev = reverting
+    ? [...routine.versions].filter((v) => v.version_no < latest.version_no).sort((a, b) => b.version_no - a.version_no)[0]
+    : undefined;
+  const initial: RoutineSettings = prev
+    ? { ...before, weekdays: prev.weekdays, startTime: hhmm(prev.start_time), durationMin: prev.duration_min }
+    : before;
+  const [value, setValue] = useState<RoutineSettings>(initial);
   const [validFrom, setValidFrom] = useState(latest.valid_from > today ? latest.valid_from : today);
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(prev ? (revertRule ? revertReason(revertRule) : "改善提案の取り消し") : "");
   const [step, setStep] = useState<"edit" | "confirm">("edit");
   const [showErrors, setShowErrors] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -203,6 +220,16 @@ function EditForm({ routine }: { routine: RoutineWithVersions }) {
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold">ルーティンを編集</h2>
+      {prev && (
+        <p className={`${card} text-sm`} role="note">
+          改善提案で変えた設定（第{latest.version_no}版）を、第{prev.version_no}版の設定に戻す内容を入れました。確認して保存すると、元の設定が新しい版として記録されます。今までの版と提案の記録は消えません。
+        </p>
+      )}
+      {revertId !== null && !prev && (
+        <p className={`${card} text-sm`} role="note">
+          取り消せるのは、改善提案で作った版が今の設定のときだけです。ふだんの編集として変更してください。
+        </p>
+      )}
       <RoutineForm value={value} onChange={setValue} errors={showErrors ? errors : {}} />
       <label className="block">
         <span className="text-sm font-bold">適用開始日</span>
